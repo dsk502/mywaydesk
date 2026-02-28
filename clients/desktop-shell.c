@@ -59,6 +59,8 @@
 #define DEFAULT_CLOCK_FORMAT CLOCK_FORMAT_MINUTES
 #define DEFAULT_SPACING 10
 
+#define MYWAYDESK_SHELL_SET_DOCK_POSITION 7
+
 enum clock_format {
 	CLOCK_FORMAT_MINUTES,
 	CLOCK_FORMAT_SECONDS,
@@ -66,6 +68,13 @@ enum clock_format {
 	CLOCK_FORMAT_SECONDS_24H,
 	CLOCK_FORMAT_NONE
 };
+
+enum mywaydesk_shell_dock_position {
+    MYWAYDESK_SHELL_DOCK_POSITION_TOP = 0,
+    MYWAYDESK_SHELL_DOCK_POSITION_BOTTOM = 1,
+    MYWAYDESK_SHELL_DOCK_POSITION_LEFT = 2,
+    MYWAYDESK_SHELL_DOCK_POSITION_RIGHT = 3
+}
 
 struct desktop {
 	struct display *display;
@@ -76,6 +85,7 @@ struct desktop {
 
 	int want_panel;
 	enum weston_desktop_shell_panel_position panel_position;
+	enum mywaydesk_shell_dock_position dock_position;
 	enum clock_format clock_format;
 
 	struct window *grab_window;
@@ -158,6 +168,24 @@ struct panel_clock {
 	char *format_string;
 	time_t refresh_timer;
 };
+
+
+//Dock
+struct dock {
+	struct surface base;
+
+    struct output *owner;
+
+    struct wl_list dock_list;
+    
+	struct window *window;
+	struct widget *widget;
+
+	//Display
+	enum mywaydesk_shell_dock_position dock_position;
+	int painted;
+	uint32_t color;
+}
 
 struct unlock_dialog {
 	struct window *window;
@@ -773,6 +801,71 @@ panel_add_launcher(struct panel *panel, const char *icon, const char *path, cons
 	widget_set_motion_handler(launcher->widget,
 				  panel_launcher_motion_handler);
 }
+
+static void
+dock_configure(void *data,
+		struct weston_desktop_shell *desktop_shell,
+		uint32_t edges, struct window *window,
+		int32_t width, int32_t height)
+{
+	struct desktop *desktop = data;
+	struct surface *surface = window_get_user_data(window);
+	struct dock *dock = container_of(surface, struct dock, base);
+	struct output *owner;
+
+	if (width < 1 || height < 1) {
+		/* Shell plugin configures 0x0 for redundant panel. */
+		owner = dock->owner;
+		//Destroy the dock
+
+		return;
+	}
+
+	switch (desktop->dock_position) {
+		case MYWAYDESK_SHELL_DOCK_POSITION_TOP:
+		case MYWAYDESK_SHELL_DOCK_POSITION_BOTTOM:
+			height = 64;
+			break;
+		case MYWAYDESK_SHELL_DOCK_POSITION_LEFT:
+		case MYWAYDESK_SHELL_DOCK_POSITION_RIGHT:
+			//Todo here
+			break;
+	},
+	window_schedule_resize(dock->window, width, height);
+}
+
+static struct dock*
+dock_create(struct desktop* desktop, struct output* output)
+{
+	struct dock *dock;
+	struct weston_config_section *s;
+
+	dock = xzalloc(sizeof *dock);
+	dock->owner = output;
+
+	//configure
+
+	dock->window = window_create_custom(desktop->display);
+	dock->widget = window_add_widget(dock->window, dock);
+
+	//wl_list_init
+
+	window_set_title(dock->window, "dock");
+	window_set_user_data(dock->window, dock);
+
+	//Redraw and resize handler
+
+	dock->dock_position = desktop->dock_position;
+
+	s = weston_config_get_section(desktop->config, "shell", NULL, NULL);
+	//Get color
+
+	//Add_launcher
+
+	return dock;
+
+}
+
 
 enum {
 	BACKGROUND_SCALE,

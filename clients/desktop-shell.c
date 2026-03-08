@@ -170,6 +170,7 @@ struct panel_clock {
 };
 
 
+
 //Dock
 struct dock {
 	struct surface base;
@@ -185,6 +186,20 @@ struct dock {
 	enum mywaydesk_shell_dock_position dock_position;
 	int painted;
 	uint32_t color;
+}
+
+//Dock launcher
+struct dock_launcher {
+	struct widget *widget;
+	struct dock *dock;
+	cairo_surface_t *icon;
+	int focused, pressed;
+	char *path;
+	char *displayname;
+	struct wl_list link;
+	struct custom_env env;
+	char * const *argp;
+	char * const *envp;
 }
 
 struct unlock_dialog {
@@ -723,6 +738,12 @@ panel_create(struct desktop *desktop, struct output *output)
 	return panel;
 }
 
+static inline void
+mywaydesk_set_dock_position(struct weston_desktop_shell *weston_desktop_shell, uint32_t position)
+{
+	wl_proxy_marshal_flags((struct wl_proxy *) weston_desktop_shell, MYWAYDESK_SHELL_SET_DOCK_POSITION, NULL, wl_proxy_get_version((struct wl_proxy *) weston_desktop_shell), 0, position);
+}
+
 static cairo_surface_t *
 load_icon_or_fallback(const char *icon)
 {
@@ -800,6 +821,49 @@ panel_add_launcher(struct panel *panel, const char *icon, const char *path, cons
 				  panel_launcher_redraw_handler);
 	widget_set_motion_handler(launcher->widget,
 				  panel_launcher_motion_handler);
+}
+
+static void
+dock_destroy(struct dock *dock)
+{
+
+}
+
+static int
+dock_launcher_enter_handler(struct widget *widget, struct input *input, float x, float y, void *data)
+{
+	struct dock_launcher *launcher = data;
+
+	launcher->focused = 1;
+	widget_schedule_redraw(widget);
+
+	return CURSOR_LEFT_PTR;
+}
+
+static void
+dock_add_launcher(struct dock *dock, const char *icon, const char *path, const char *displayname)
+{
+	struct dock_launcher *launcher;
+
+	launcher = xzalloc(sizeof *launcher);
+
+	//Set the icon, path and display name of the App launcher in dock
+	launcher->icon = load_icon_or_fallback(icon);
+	launcher->path = xstrdup(path);
+	launcher->displayname = xstrup(displayname)
+
+	custom_env_init_from_environ(&launcher->env);
+	custom_env_add_from_exec_string(&launcher->env, launcher->path);
+	launcher->envp = custom_env_get_envp(&launcher->env);
+	launcher->argp = custom_env_get_argp(&launcher->env);
+
+	launcher->dock = dock;
+	wl_list_insert(dock->launcher_list.prev, &launcher->link);
+
+	launcher->widget = widget_add_widget(dock->widget, launcher);
+	//Add event handlers
+	//widget_set_enter_handler(launcher->widget, )
+
 }
 
 static void
@@ -1569,6 +1633,7 @@ panel_add_launchers(struct panel *panel, struct desktop *desktop)
 
 	count = 0;
 	s = NULL;
+	//Iterate the configuration file weston.ini, find installed applications mentioned in the file, and add them to the panel
 	while (weston_config_next_section(desktop->config, &s, &name)) {
 		if (strcmp(name, "launcher") != 0)
 			continue;
@@ -1649,6 +1714,15 @@ parse_clock_format(struct desktop *desktop, struct weston_config_section *s)
 	free(clock_format);
 }
 
+static void
+parse_dock_position(struct desktop* desktop, struct weston_config_section *s)
+{
+	//char* position;
+
+	//Currently, only support bottom
+	desktop->dock_position = MYWAYDESK_SHELL_DOCK_POSITION_BOTTOM;
+}
+
 int main(int argc, char *argv[])
 {
 	struct desktop desktop = { 0 };
@@ -1665,6 +1739,8 @@ int main(int argc, char *argv[])
 	weston_config_section_get_bool(s, "locking", &desktop.locking, true);
 	parse_panel_position(&desktop, s);
 	parse_clock_format(&desktop, s);
+	//Parse dock position
+	parse_dock_position(&desktop, s);
 
 	desktop.display = display_create(&argc, argv);
 	if (desktop.display == NULL) {
@@ -1682,6 +1758,8 @@ int main(int argc, char *argv[])
 	 * global interface was processed */
 	if (desktop.want_panel)
 		weston_desktop_shell_set_panel_position(desktop.shell, desktop.panel_position);
+		//Add the dock to the desktop
+		mywaydesk_set_dock_position(desktop.shell, desktop.dock_position);
 	wl_list_for_each(output, &desktop.outputs, link)
 		if (!output->background)
 			output_init(output, &desktop);

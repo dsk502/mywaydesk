@@ -728,7 +728,10 @@ panel_create(struct desktop *desktop, struct output *output)
 	widget_set_redraw_handler(panel->widget, panel_redraw_handler);
 	widget_set_resize_handler(panel->widget, panel_resize_handler);
 
+	//Panel position
 	panel->panel_position = desktop->panel_position;
+
+	//Clock
 	panel->clock_format = desktop->clock_format;
 	if (panel->clock_format != CLOCK_FORMAT_NONE)
 		panel_add_clock(panel);
@@ -743,11 +746,7 @@ panel_create(struct desktop *desktop, struct output *output)
 	return panel;
 }
 
-static inline void
-mywaydesk_set_dock_position(struct weston_desktop_shell *weston_desktop_shell, uint32_t position)
-{
-	wl_proxy_marshal_flags((struct wl_proxy *) weston_desktop_shell, MYWAYDESK_SHELL_SET_DOCK_POSITION, NULL, wl_proxy_get_version((struct wl_proxy *) weston_desktop_shell), 0, position);
-}
+
 
 static cairo_surface_t *
 load_icon_or_fallback(const char *icon)
@@ -1404,9 +1403,11 @@ output_init(struct output *output, struct desktop *desktop)
 		weston_desktop_shell_set_panel(desktop->shell,
 					       output->output, surface);
 		
+		//Init the dock in the output layer
+		//Now, dock and panel share the same opcode, so invoke weston_desktop_shell_set_panel()
 		output->dock = dock_create(desktop, output);
 		surface = window_get_wl_surface(output->dock->window);
-
+		weston_desktop_shell_set_panel(desktop->shell, output->output, surface);
 	}
 
 	output->background = background_create(desktop, output);
@@ -1486,6 +1487,13 @@ output_remove(struct desktop *desktop, struct output *output)
 			output->panel = NULL;
 			if (rep->panel)
 				rep->panel->owner = rep;
+		}
+
+		if(!rep->dock) {
+			rep->dock = output->dock;
+			output->dock = NULL;
+			if (rep->dock)
+				rep->dock->owner = rep;
 		}
 	}
 
@@ -1619,11 +1627,113 @@ parse_clock_format(struct desktop *desktop, struct weston_config_section *s)
 	free(clock_format);
 }
 
+static inline void
+mywaydesk_set_dock_position(struct weston_desktop_shell *weston_desktop_shell, uint32_t position)
+{
+	wl_proxy_marshal_flags((struct wl_proxy *) weston_desktop_shell, MYWAYDESK_SHELL_SET_DOCK_POSITION, NULL, wl_proxy_get_version((struct wl_proxy *) weston_desktop_shell), 0, position);
+}
+
 //Destroy the dock
 static void
 dock_destroy(struct dock *dock)
 {
 
+}
+
+static void
+dock_redraw_handler(struct widget *widget, void *data)
+{
+	cairo_surface_t *surface;
+	cairo_t *cr;
+	struct dock *dock = data;
+
+	cr = widget_cairo_create(dock->widget);
+	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+	set_hax_color(cr, dock->color);
+	cairo_paint(cr);
+
+	cairo_destroy(cr);
+	surface = window_get_surface(dock->window);
+	cairo_surface_destroy(surface);
+	dock->painted = 1;
+	check_desktop_ready(dock->window);
+}
+
+static void
+dock_resize_handler(struct widget *widget,
+		     int32_t width, int32_t height, void *data)
+{
+	struct dock_launcher *launcher;
+	struct dock *dock = data;
+	int x = 0;
+	int y = 0;
+	int w = height > width ? width : height;
+	int h = w;
+	int horizontal;
+
+	if (dock->dock_position == MYWAYDESK_SHELL_DOCK_POSITION_BOTTOM ||
+		dock->dock_position == MYWAYDESK_SHELL_DOCK_POSITION_TOP) {
+		horizontal = 1;
+	} else {
+		horizontal = 0;
+	}
+
+	int first_pad_h = horizontal ? 0 : DEFAULT_SPACING / 2;
+	int first_pad_w = horizontal ? DEFAULT_SPACING / 2 : 0;
+
+	wl_list_for_each(launcher, &panel->launcher_list, link) {
+		widget_set_allocation(launcher->widget, x, y, 
+						w + first_pad_w + 1, h + first_pad_h + 1);
+		if (horizontal)
+			x += w + first_pad_w;
+		else
+			y += h + first_pad_h;
+		first_pad_h = first_pad_w = 0;
+	}
+
+	w = 170;
+
+	if (horizontal)
+		x = width - w;
+	else
+		y = height - (h = DEFAULT_SPACING * 3);
+
+	/*
+	struct panel_launcher *launcher;
+	struct panel *panel = data;
+	int x = 0;
+	int y = 0;
+	int w = height > width ? width : height;
+	int h = w;
+	int horizontal = panel->panel_position == WESTON_DESKTOP_SHELL_PANEL_POSITION_TOP || panel->panel_position == WESTON_DESKTOP_SHELL_PANEL_POSITION_BOTTOM;
+	int first_pad_h = horizontal ? 0 : DEFAULT_SPACING / 2;
+	int first_pad_w = horizontal ? DEFAULT_SPACING / 2 : 0;
+
+	wl_list_for_each(launcher, &panel->launcher_list, link) {
+		widget_set_allocation(launcher->widget, x, y,
+				      w + first_pad_w + 1, h + first_pad_h + 1);
+		if (horizontal)
+			x += w + first_pad_w;
+		else
+			y += h + first_pad_h;
+		first_pad_h = first_pad_w = 0;
+	}
+
+	if (panel->clock_format == CLOCK_FORMAT_SECONDS)
+		w = 170;
+	else /* CLOCK_FORMAT_MINUTES and 24H versions */
+	/*
+		w = 150;
+	
+	if (horizontal)
+		x = width - w;
+	else
+		y = height - (h = DEFAULT_SPACING * 3);
+
+	if (panel->clock)
+		widget_set_allocation(panel->clock->widget,
+				      x, y, w + 1, h + 1);
+	*/
 }
 
 static int
@@ -1677,10 +1787,11 @@ dock_configure(void *data,
 	struct output *owner;
 
 	if (width < 1 || height < 1) {
-		/* Shell plugin configures 0x0 for redundant panel. */
+		/* Shell plugin configures 0x0 for redundant dock. */
 		owner = dock->owner;
 		//Destroy the dock
-
+		dock_destroy(dock);
+		owner->dock = NULL;
 		return;
 	}
 
@@ -1697,6 +1808,7 @@ dock_configure(void *data,
 	window_schedule_resize(dock->window, width, height);
 }
 
+
 static struct dock*
 dock_create(struct desktop* desktop, struct output* output)
 {
@@ -1707,26 +1819,31 @@ dock_create(struct desktop* desktop, struct output* output)
 	dock->owner = output;
 
 	//configure
-
+	dock->base.configure = dock_configure;
 	dock->window = window_create_custom(desktop->display);
 	dock->widget = window_add_widget(dock->window, dock);
 
-	//wl_list_init
+	//Todo: wl_list_init
+
 
 	window_set_title(dock->window, "dock");
 	window_set_user_data(dock->window, dock);
 
 	//Redraw and resize handler
+	widget_set_redraw_handler(dock->widget, dock_redraw_handler);
+	widget_set_resize_handler(dock->widget, dock_resize_handler);
 
+	//Dock position
 	dock->dock_position = desktop->dock_position;
 
+	//Read the configuration file
 	s = weston_config_get_section(desktop->config, "shell", NULL, NULL);
-	//Get color
-
-	//Add_launcher
+	//Get color, currently dock-color = panel-color
+	weston_config_section_get_color(s, "panel-color", &dock->color, 0xaa000000);
+	
+	//Todo: Add_launcher
 
 	return dock;
-
 }
 
 static void

@@ -74,7 +74,7 @@ enum mywaydesk_shell_dock_position {
     MYWAYDESK_SHELL_DOCK_POSITION_BOTTOM = 1,
     MYWAYDESK_SHELL_DOCK_POSITION_LEFT = 2,
     MYWAYDESK_SHELL_DOCK_POSITION_RIGHT = 3
-}
+};
 
 struct desktop {
 	struct display *display;
@@ -197,7 +197,7 @@ struct dock {
 	enum mywaydesk_shell_dock_position dock_position;
 	int painted;
 	uint32_t color;
-}
+};
 
 //Dock launcher
 struct dock_launcher {
@@ -211,7 +211,7 @@ struct dock_launcher {
 	struct custom_env env;
 	char * const *argp;
 	char * const *envp;
-}
+};
 
 static void
 panel_add_launchers(struct panel *panel, struct desktop *desktop);
@@ -1391,6 +1391,9 @@ static const struct wl_output_listener output_listener = {
 	output_handle_scale
 };
 
+static struct dock*
+dock_create(struct desktop* desktop, struct output* output);
+
 //Init the display screen
 static void
 output_init(struct output *output, struct desktop *desktop)
@@ -1649,7 +1652,7 @@ dock_redraw_handler(struct widget *widget, void *data)
 
 	cr = widget_cairo_create(dock->widget);
 	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-	set_hax_color(cr, dock->color);
+	set_hex_color(cr, dock->color);
 	cairo_paint(cr);
 
 	cairo_destroy(cr);
@@ -1681,7 +1684,8 @@ dock_resize_handler(struct widget *widget,
 	int first_pad_h = horizontal ? 0 : DEFAULT_SPACING / 2;
 	int first_pad_w = horizontal ? DEFAULT_SPACING / 2 : 0;
 
-	wl_list_for_each(launcher, &panel->launcher_list, link) {
+	/*
+	wl_list_for_each(launcher, &dock->launcher_list, link) {
 		widget_set_allocation(launcher->widget, x, y, 
 						w + first_pad_w + 1, h + first_pad_h + 1);
 		if (horizontal)
@@ -1690,6 +1694,7 @@ dock_resize_handler(struct widget *widget,
 			y += h + first_pad_h;
 		first_pad_h = first_pad_w = 0;
 	}
+		*/
 
 	w = 170;
 
@@ -1748,6 +1753,7 @@ dock_launcher_enter_handler(struct widget *widget, struct input *input, float x,
 }
 
 //Add one launcher (App) to the dock
+/*
 static void
 dock_add_launcher(struct dock *dock, const char *icon, const char *path, const char *displayname)
 {
@@ -1758,7 +1764,7 @@ dock_add_launcher(struct dock *dock, const char *icon, const char *path, const c
 	//Set the icon, path and display name of the App launcher in dock
 	launcher->icon = load_icon_or_fallback(icon);
 	launcher->path = xstrdup(path);
-	launcher->displayname = xstrup(displayname)
+	launcher->displayname = xstrdup(displayname);
 
 	custom_env_init_from_environ(&launcher->env);
 	custom_env_add_from_exec_string(&launcher->env, launcher->path);
@@ -1774,6 +1780,7 @@ dock_add_launcher(struct dock *dock, const char *icon, const char *path, const c
 	widget_set_enter_handler(launcher->widget, dock_launcher_enter_handler);
 
 }
+	*/
 
 static void
 dock_configure(void *data,
@@ -1804,7 +1811,7 @@ dock_configure(void *data,
 		case MYWAYDESK_SHELL_DOCK_POSITION_RIGHT:
 			//Todo here
 			break;
-	},
+	}
 	window_schedule_resize(dock->window, width, height);
 }
 
@@ -1892,10 +1899,11 @@ int main(int argc, char *argv[])
 
 	/* Create panel and background for outputs processed before the shell
 	 * global interface was processed */
-	if (desktop.want_panel)
+	if (desktop.want_panel) {
 		weston_desktop_shell_set_panel_position(desktop.shell, desktop.panel_position);
 		//Add the dock to the desktop
 		mywaydesk_set_dock_position(desktop.shell, desktop.dock_position);
+	}
 	wl_list_for_each(output, &desktop.outputs, link)
 		if (!output->background)
 			output_init(output, &desktop);	//output_init() -> panel_create()

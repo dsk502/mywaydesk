@@ -1,6 +1,7 @@
 /*
  * Copyright © 2011 Kristian Høgsberg
  * Copyright © 2011 Collabora, Ltd.
+ * Copyright © 2026 Shengkang Duan
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -1768,36 +1769,6 @@ dock_launcher_enter_handler(struct widget *widget, struct input *input, float x,
 	return CURSOR_LEFT_PTR;
 }
 
-//Add one launcher (App) to the dock
-/*
-static void
-dock_add_launcher(struct dock *dock, const char *icon, const char *path, const char *displayname)
-{
-	struct dock_launcher *launcher;
-
-	launcher = xzalloc(sizeof *launcher);
-
-	//Set the icon, path and display name of the App launcher in dock
-	launcher->icon = load_icon_or_fallback(icon);
-	launcher->path = xstrdup(path);
-	launcher->displayname = xstrdup(displayname);
-
-	custom_env_init_from_environ(&launcher->env);
-	custom_env_add_from_exec_string(&launcher->env, launcher->path);
-	launcher->envp = custom_env_get_envp(&launcher->env);
-	launcher->argp = custom_env_get_argp(&launcher->env);
-
-	launcher->dock = dock;
-	wl_list_insert(dock->launcher_list.prev, &launcher->link);
-
-	launcher->widget = widget_add_widget(dock->widget, launcher);
-	//Add event handlers
-	//widget_set_enter_handler(launcher->widget, )
-	widget_set_enter_handler(launcher->widget, dock_launcher_enter_handler);
-
-}
-	*/
-
 static void
 dock_configure(void *data,
 		struct weston_desktop_shell *desktop_shell,
@@ -1874,7 +1845,7 @@ parse_dock_position(struct desktop* desktop, struct weston_config_section *s)
 {
 	//char* position;
 
-	//Currently, only support bottom
+	//Currently, only support bottom dock
 	desktop->dock_position = WESTON_DESKTOP_SHELL_DOCK_POSITION_BOTTOM;
 }
 

@@ -59,21 +59,12 @@
 #define DEFAULT_CLOCK_FORMAT CLOCK_FORMAT_MINUTES
 #define DEFAULT_SPACING 10
 
-#define MYWAYDESK_SHELL_SET_DOCK_POSITION 7
-
 enum clock_format {
 	CLOCK_FORMAT_MINUTES,
 	CLOCK_FORMAT_SECONDS,
 	CLOCK_FORMAT_MINUTES_24H,
 	CLOCK_FORMAT_SECONDS_24H,
 	CLOCK_FORMAT_NONE
-};
-
-enum mywaydesk_shell_dock_position {
-    MYWAYDESK_SHELL_DOCK_POSITION_TOP = 0,
-    MYWAYDESK_SHELL_DOCK_POSITION_BOTTOM = 1,
-    MYWAYDESK_SHELL_DOCK_POSITION_LEFT = 2,
-    MYWAYDESK_SHELL_DOCK_POSITION_RIGHT = 3
 };
 
 struct desktop {
@@ -85,7 +76,7 @@ struct desktop {
 
 	int want_panel;
 	enum weston_desktop_shell_panel_position panel_position;
-	enum mywaydesk_shell_dock_position dock_position;
+	enum weston_desktop_shell_dock_position dock_position;
 	enum clock_format clock_format;
 
 	struct window *grab_window;
@@ -188,13 +179,13 @@ struct dock {
 
     struct output *owner;
 
-    struct wl_list dock_list;
+    struct wl_list launcher_list;
     
 	struct window *window;
 	struct widget *widget;
 
 	//Display
-	enum mywaydesk_shell_dock_position dock_position;
+	enum weston_desktop_shell_dock_position dock_position;
 	int painted;
 	uint32_t color;
 };
@@ -236,6 +227,8 @@ is_desktop_painted(struct desktop *desktop)
 			return 0;
 		if (output->background && !output->background->painted)
 			return 0;
+		if (output->dock && !output->dock->painted)
+    		return 0;
 	}
 
 	return 1;
@@ -1311,12 +1304,17 @@ grab_surface_create(struct desktop *desktop)
 }
 
 static void
+dock_destroy(struct dock* dock);
+
+static void
 output_destroy(struct output *output)
 {
 	if (output->background)
 		background_destroy(output->background);
 	if (output->panel)
 		panel_destroy(output->panel);
+	if (output->dock)
+		dock_destroy(output->dock);
 	wl_output_destroy(output->output);
 	wl_list_remove(&output->link);
 
@@ -1407,10 +1405,9 @@ output_init(struct output *output, struct desktop *desktop)
 					       output->output, surface);
 		
 		//Init the dock in the output layer
-		//Now, dock and panel share the same opcode, so invoke weston_desktop_shell_set_panel()
 		output->dock = dock_create(desktop, output);
 		surface = window_get_wl_surface(output->dock->window);
-		weston_desktop_shell_set_panel(desktop->shell, output->output, surface);
+		weston_desktop_shell_set_dock(desktop->shell, output->output, surface);
 	}
 
 	output->background = background_create(desktop, output);
@@ -1630,17 +1627,36 @@ parse_clock_format(struct desktop *desktop, struct weston_config_section *s)
 	free(clock_format);
 }
 
-static inline void
-mywaydesk_set_dock_position(struct weston_desktop_shell *weston_desktop_shell, uint32_t position)
+static void
+dock_destroy_launcher(struct dock_launcher *launcher)
 {
-	wl_proxy_marshal_flags((struct wl_proxy *) weston_desktop_shell, MYWAYDESK_SHELL_SET_DOCK_POSITION, NULL, wl_proxy_get_version((struct wl_proxy *) weston_desktop_shell), 0, position);
+	custom_env_fini(&launcher->env);
+
+	free(launcher->path);
+	free(launcher->displayname);
+
+	cairo_surface_destroy(launcher->icon);
+
+	widget_destroy(launcher->widget);
+	wl_list_remove(&launcher->link);
+
+	free(launcher);
 }
 
 //Destroy the dock
 static void
 dock_destroy(struct dock *dock)
 {
+	struct dock_launcher *tmp;
+	struct dock_launcher *launcher;
 
+	wl_list_for_each_safe(launcher, tmp, &dock->launcher_list, link)
+		dock_destroy_launcher(launcher);
+
+	widget_destroy(dock->widget);
+	window_destroy(dock->window);
+
+	free(dock);
 }
 
 static void
@@ -1674,8 +1690,8 @@ dock_resize_handler(struct widget *widget,
 	int h = w;
 	int horizontal;
 
-	if (dock->dock_position == MYWAYDESK_SHELL_DOCK_POSITION_BOTTOM ||
-		dock->dock_position == MYWAYDESK_SHELL_DOCK_POSITION_TOP) {
+	if (dock->dock_position == WESTON_DESKTOP_SHELL_DOCK_POSITION_BOTTOM ||
+		dock->dock_position == WESTON_DESKTOP_SHELL_DOCK_POSITION_TOP) {
 		horizontal = 1;
 	} else {
 		horizontal = 0;
@@ -1803,12 +1819,12 @@ dock_configure(void *data,
 	}
 
 	switch (desktop->dock_position) {
-		case MYWAYDESK_SHELL_DOCK_POSITION_TOP:
-		case MYWAYDESK_SHELL_DOCK_POSITION_BOTTOM:
+		case WESTON_DESKTOP_SHELL_DOCK_POSITION_TOP:
+		case WESTON_DESKTOP_SHELL_DOCK_POSITION_BOTTOM:
 			height = 64;
 			break;
-		case MYWAYDESK_SHELL_DOCK_POSITION_LEFT:
-		case MYWAYDESK_SHELL_DOCK_POSITION_RIGHT:
+		case WESTON_DESKTOP_SHELL_DOCK_POSITION_LEFT:
+		case WESTON_DESKTOP_SHELL_DOCK_POSITION_RIGHT:
 			//Todo here
 			break;
 	}
@@ -1830,8 +1846,8 @@ dock_create(struct desktop* desktop, struct output* output)
 	dock->window = window_create_custom(desktop->display);
 	dock->widget = window_add_widget(dock->window, dock);
 
-	//Todo: wl_list_init
-
+	//wl_list_init
+	wl_list_init(&dock->launcher_list);
 
 	window_set_title(dock->window, "dock");
 	window_set_user_data(dock->window, dock);
@@ -1859,7 +1875,7 @@ parse_dock_position(struct desktop* desktop, struct weston_config_section *s)
 	//char* position;
 
 	//Currently, only support bottom
-	desktop->dock_position = MYWAYDESK_SHELL_DOCK_POSITION_BOTTOM;
+	desktop->dock_position = WESTON_DESKTOP_SHELL_DOCK_POSITION_BOTTOM;
 }
 
 int main(int argc, char *argv[])
@@ -1902,7 +1918,7 @@ int main(int argc, char *argv[])
 	if (desktop.want_panel) {
 		weston_desktop_shell_set_panel_position(desktop.shell, desktop.panel_position);
 		//Add the dock to the desktop
-		mywaydesk_set_dock_position(desktop.shell, desktop.dock_position);
+		weston_desktop_shell_set_dock_position(desktop.shell, desktop.dock_position);
 	}
 	wl_list_for_each(output, &desktop.outputs, link)
 		if (!output->background)

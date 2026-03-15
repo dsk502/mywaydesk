@@ -71,6 +71,12 @@ struct shell_output {
 	struct wl_listener panel_surface_listener;
 	struct weston_coord_global panel_offset;
 
+	//Add dock
+	struct weston_surface *dock_surface;
+	struct weston_view *dock_view;
+	struct wl_listener dock_surface_listener;
+	struct weston_coord_global dock_offset;
+
 	struct weston_surface *background_surface;
 	struct weston_view *background_view;
 	struct wl_listener background_surface_listener;
@@ -156,6 +162,7 @@ struct desktop_shell {
 	struct wl_list shsurf_list;
 
 	enum weston_desktop_shell_panel_position panel_position;
+	enum weston_desktop_shell_dock_position dock_position;	//Added
 
 	char *client;
 

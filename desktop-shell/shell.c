@@ -2964,6 +2964,132 @@ desktop_shell_set_panel(struct wl_client *client,
 	wl_signal_add(&surface->destroy_signal, &sh_output->panel_surface_listener);
 }
 
+static void
+handle_dock_surface_destroy(struct wl_listener *listener, void *data);
+
+static int
+dock_get_label(struct weston_surface *surface, char *buf, size_t len)
+{
+	return snprintf(buf, len, "dock for output %s",
+			(surface->output ? surface->output->name : "NULL"));
+}
+
+static void
+dock_committed(struct weston_surface *es, struct weston_coord_surface new_origin)
+{
+	struct shell_output *sh_output = es->committed_private;
+	struct weston_output *output = sh_output->output;
+	struct weston_coord_global pos = output->pos;
+	struct desktop_shell *shell = sh_output->shell;
+
+	if (!weston_surface_has_content(es))
+		return;
+
+	sh_output->dock_offset.c = weston_coord(0, output->height - es->height);
+	//Dock is always at the bottom
+	/*
+	switch (shell->panel_position) {
+	case WESTON_DESKTOP_SHELL_PANEL_POSITION_TOP:
+	case WESTON_DESKTOP_SHELL_PANEL_POSITION_LEFT:
+		sh_output->panel_offset.c = weston_coord(0, 0);
+		break;
+	case WESTON_DESKTOP_SHELL_PANEL_POSITION_BOTTOM:
+		sh_output->panel_offset.c =
+			weston_coord(0, output->height - es->height);
+		break;
+	case WESTON_DESKTOP_SHELL_PANEL_POSITION_RIGHT:
+		sh_output->panel_offset.c =
+			weston_coord(output->width - es->width, 0);
+		break;
+	default:
+		unreachable("unknown panel position");
+		break;
+	}
+	*/
+
+	if (!weston_surface_is_mapped(es)) {
+		weston_surface_map(es);
+		assert(wl_list_empty(&es->views));
+		sh_output->dock_view = weston_view_create(es);
+
+		//Dock is also on the panel layer
+		weston_view_move_to_layer(sh_output->dock_view,
+					  &shell->panel_layer.view_list);
+	}
+
+	assert(sh_output->dock_view);
+	//offset = weston_coord(0, output->height - es->height);
+	pos = weston_coord_global_add(output->pos, sh_output->dock_offset);
+	weston_view_set_position(sh_output->dock_view, pos);
+}
+
+static void
+desktop_shell_set_dock(struct wl_client *client,
+                       struct wl_resource *resource,
+                       struct wl_resource *output_resource,
+                       struct wl_resource *surface_resource)
+{
+    struct desktop_shell *shell = wl_resource_get_user_data(resource);
+	struct weston_surface *surface = wl_resource_get_user_data(surface_resource);
+    struct shell_output *sh_output = wl_resource_get_user_data(output_resource);
+    struct weston_head *head = weston_head_from_resource(output_resource);
+
+	if (surface->committed) {
+		wl_resource_post_error(surface_resource,
+				       WL_DISPLAY_ERROR_INVALID_OBJECT,
+				       "surface role already assigned");
+		return;
+	}
+
+	if (!head)
+		return;
+
+	surface->output = head->output;
+	sh_output = find_shell_output_from_weston_output(shell, surface->output);
+
+	if (sh_output->dock_surface) {
+		wl_resource_post_error(surface_resource,
+				       WL_DISPLAY_ERROR_INVALID_OBJECT,
+				       "output already has a dock surface");
+		return;
+	}
+
+	surface->committed = dock_committed;
+	surface->committed_private = sh_output;
+	weston_surface_set_label_func(surface, dock_get_label);
+
+	weston_desktop_shell_send_configure(resource, 0,
+					    surface_resource,
+					    surface->output->width,
+					    surface->output->height);
+
+	sh_output->dock_surface = surface;
+
+	sh_output->dock_surface_listener.notify = handle_dock_surface_destroy;
+	wl_signal_add(&surface->destroy_signal, &sh_output->dock_surface_listener);
+}
+
+static void
+desktop_shell_set_dock_position(struct wl_client *client,
+				 struct wl_resource *resource,
+				 uint32_t position)
+{
+	struct desktop_shell *shell = wl_resource_get_user_data(resource);
+
+	shell->dock_position = position;
+}
+
+static void
+handle_dock_surface_destroy(struct wl_listener *listener, void *data)
+{
+	struct shell_output *output =
+	    container_of(listener, struct shell_output, dock_surface_listener);
+
+	wl_list_remove(&output->dock_surface_listener.link);
+	output->dock_surface = NULL;
+	output->dock_view = NULL;
+}
+
 static int
 lock_surface_get_label(struct weston_surface *surface, char *buf, size_t len)
 {
@@ -3112,11 +3238,13 @@ desktop_shell_set_panel_position(struct wl_client *client,
 static const struct weston_desktop_shell_interface desktop_shell_implementation = {
 	desktop_shell_set_background,
 	desktop_shell_set_panel,
+	desktop_shell_set_dock,	
 	desktop_shell_set_lock_surface,
 	desktop_shell_unlock,
 	desktop_shell_set_grab_surface,
 	desktop_shell_desktop_ready,
-	desktop_shell_set_panel_position
+	desktop_shell_set_panel_position,
+	desktop_shell_set_dock_position
 };
 
 static void

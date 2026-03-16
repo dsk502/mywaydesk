@@ -7,6 +7,11 @@ Currently, it is based on Weston 14.0.2.
 
 ## Changes
 Added a dock at the bottom (now it is empty, and more functions will be implemented in the future)
+The original desktop screenshot (by original contributors):
+![original_desktop](doc/wayland-screenshot.jpg)
+
+The modified desktop:
+![dock_added](doc/dock_added.png)
 
 ## License
 This project uses the same license as Weston. For more information, read `COPYING`.

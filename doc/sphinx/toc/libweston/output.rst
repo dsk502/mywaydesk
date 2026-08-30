@@ -26,5 +26,3 @@ The reverse operation, :func:`weston_output_disable`, should be used when there'
 a need to reconfigure the output or it will be destroyed.
 
 
-.. doxygengroup:: output
-   :content-only:

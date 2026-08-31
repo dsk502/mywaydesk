@@ -68,6 +68,10 @@ enum clock_format {
 	CLOCK_FORMAT_NONE
 };
 
+class Desktop {
+
+};
+
 struct desktop {
 	struct display *display;
 	struct weston_desktop_shell *shell;
@@ -99,6 +103,18 @@ struct surface {
 };
 
 struct output;
+
+class Output {
+
+};
+
+class Panel {
+
+};
+
+class Background {
+
+};
 
 struct panel {
 	struct surface base;

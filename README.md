@@ -6,6 +6,7 @@ Mywaydesk is a Wayland desktop environment derived from Weston. It is a WIP (Wor
 Currently, it is based on Weston 14.0.2.
 
 ## Changes
+### v0.0.1
 Added a dock at the bottom (now it is empty, and more functions will be implemented in the future).
 
 The original desktop screenshot (by original contributors):

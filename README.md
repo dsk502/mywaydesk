@@ -14,6 +14,20 @@ The original desktop screenshot (by original contributors):
 The modified desktop:
 ![dock_added](doc/dock_added.png)
 
+## Installation
+1. Install Debian 13 in a virtual machine (command line, without GUI)
+2. Install dependencies of libweston
+```
+sudo apt build-dep libweston
+```
+3. Clone MyWaydesk's source code
+4. Build and install
+```
+meson setup build
+ninja -C build
+sudo ninja -C build install
+```
+
 ## License
 This project uses the same license as Weston. For more information, read `COPYING`.
 

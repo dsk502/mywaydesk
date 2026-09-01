@@ -206,3 +206,19 @@ Desktop::output_remove(Output *output)
 
 	delete output;
 }
+
+void
+check_desktop_ready(struct window *window)
+{
+	struct display *display;
+	Desktop *desktop;
+
+	display = window_get_display(window);
+	desktop = static_cast<Desktop *>(display_get_user_data(display));
+
+	if (!desktop->painted && desktop->is_desktop_painted()) {
+		desktop->painted = 1;
+
+		weston_desktop_shell_desktop_ready(desktop->shell);
+	}
+}

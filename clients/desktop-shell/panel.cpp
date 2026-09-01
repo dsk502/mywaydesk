@@ -56,12 +56,12 @@ Panel::Panel(Desktop *desktop, Output *output)
 	//Todo: fix the clock addition
 	this->clock_format = desktop->clock_format;
 	if (this->clock_format != CLOCK_FORMAT_NONE)
-		panel_add_clock(this);
+		panel_add_clock();
 
 	//Read the configuration file
 	s = weston_config_get_section(desktop->config, "shell", NULL, NULL);
 	weston_config_section_get_color(s, "panel-color",
-					&panel->color, 0xaa000000);
+					&this->color, 0xaa000000);
 
 	//Todo: check the invoke
 	panel_add_launchers(desktop);
@@ -107,7 +107,7 @@ Panel::panel_add_launchers(Desktop *desktop)
 		weston_config_section_get_string(s, "path", &path, NULL);
 		weston_config_section_get_string(s, "displayname", &displayname, NULL);
 		if (displayname == NULL)
-			displayname = xstrdup(basename(path));
+			displayname = static_cast<char *>(xstrdup(basename(path)));
 
 		if (icon != NULL && path != NULL) {
 			panel_add_launcher(icon, path, displayname);
@@ -146,8 +146,8 @@ Panel::panel_add_launcher(const char *icon, const char *path, const char *displa
 
 	//launcher = xzalloc(sizeof *launcher);
 	launcher->icon = load_icon_or_fallback(icon);
-	launcher->path = xstrdup(path);
-	launcher->displayname = xstrdup(displayname);
+	launcher->path = static_cast<char *>(xstrdup(path));
+	launcher->displayname = static_cast<char *>(xstrdup(displayname));
 
 	custom_env_init_from_environ(&launcher->env);
 	custom_env_add_from_exec_string(&launcher->env, launcher->path);
@@ -212,10 +212,122 @@ Panel::panel_add_clock()
 
 	toytimer_init(&clock->timer, CLOCK_MONOTONIC,
 		      window_get_display(this->window), clock_func);
-	clock_timer_reset(clock);
+	clock->clock_timer_reset();
 
 	clock->widget = widget_add_widget(this->widget, clock);
-	widget_set_redraw_handler(clock->widget, panel_clock_redraw_handler);
+	widget_set_redraw_handler(clock->widget, PanelClock::panel_clock_redraw_handler);
+}
+
+static void
+clock_func(struct toytimer *tt)
+{
+	PanelClock *clock = container_of(tt, PanelClock, timer);
+
+	widget_schedule_redraw(clock->widget);
+
+	clock->clock_timer_reset();
+}
+
+void
+Panel::panel_redraw_handler(struct widget *widget, void *data)
+{
+	cairo_surface_t *surface;
+	cairo_t *cr;
+	Panel *panel = static_cast<Panel *>(data);
+
+	cr = widget_cairo_create(panel->widget);
+	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+	set_hex_color(cr, panel->color);
+	cairo_paint(cr);
+
+	cairo_destroy(cr);
+	surface = window_get_surface(panel->window);
+	cairo_surface_destroy(surface);
+	panel->painted = 1;
+	check_desktop_ready(panel->window);
+}
+
+void
+Panel::panel_resize_handler(struct widget *widget,
+		     int32_t width, int32_t height, void *data)
+{
+	PanelLauncher *launcher;
+	Panel *panel = static_cast<Panel *>(data);
+	int x = 0;
+	int y = 0;
+	int w = height > width ? width : height;
+	int h = w;
+	int horizontal = panel->panel_position == WESTON_DESKTOP_SHELL_PANEL_POSITION_TOP || panel->panel_position == WESTON_DESKTOP_SHELL_PANEL_POSITION_BOTTOM;
+	int first_pad_h = horizontal ? 0 : DEFAULT_SPACING / 2;
+	int first_pad_w = horizontal ? DEFAULT_SPACING / 2 : 0;
+
+	wl_list_for_each(launcher, &panel->launcher_list, link) {
+		widget_set_allocation(launcher->widget, x, y,
+				      w + first_pad_w + 1, h + first_pad_h + 1);
+		if (horizontal)
+			x += w + first_pad_w;
+		else
+			y += h + first_pad_h;
+		first_pad_h = first_pad_w = 0;
+	}
+
+	if (panel->clock_format == CLOCK_FORMAT_SECONDS)
+		w = 170;
+	else /* CLOCK_FORMAT_MINUTES and 24H versions */
+		w = 150;
+
+	if (horizontal)
+		x = width - w;
+	else
+		y = height - (h = DEFAULT_SPACING * 3);
+
+	if (panel->clock)
+		widget_set_allocation(panel->clock->widget,
+				      x, y, w + 1, h + 1);
+}
+
+void
+Panel::panel_configure(void *data,
+		struct weston_desktop_shell *desktop_shell,
+		uint32_t edges, struct window *window,
+		int32_t width, int32_t height)
+{
+	Desktop *desktop = static_cast<Desktop *>(data);
+	struct surface *surface = static_cast<struct surface *>(window_get_user_data(window));
+	Panel *panel = container_of(surface, Panel, base);
+	Output *owner;
+
+	if (width < 1 || height < 1) {
+		/* Shell plugin configures 0x0 for redundant panel. */
+		owner = panel->owner;
+		delete panel;
+		owner->panel = NULL;
+		return;
+	}
+
+	switch (desktop->panel_position) {
+	case WESTON_DESKTOP_SHELL_PANEL_POSITION_TOP:
+	case WESTON_DESKTOP_SHELL_PANEL_POSITION_BOTTOM:
+		height = 32;
+		break;
+	case WESTON_DESKTOP_SHELL_PANEL_POSITION_LEFT:
+	case WESTON_DESKTOP_SHELL_PANEL_POSITION_RIGHT:
+		switch (desktop->clock_format) {
+		case CLOCK_FORMAT_NONE:
+			width = 32;
+			break;
+		case CLOCK_FORMAT_MINUTES:
+		case CLOCK_FORMAT_MINUTES_24H:
+		case CLOCK_FORMAT_SECONDS_24H:
+			width = 150;
+			break;
+		case CLOCK_FORMAT_SECONDS:
+			width = 170;
+			break;
+		}
+		break;
+	}
+	window_schedule_resize(panel->window, width, height);
 }
 
 int
@@ -245,6 +357,44 @@ PanelClock::~PanelClock()
 	widget_destroy(this->widget);
 	toytimer_fini(&this->timer);
 	//free(clock);
+}
+
+void
+PanelClock::panel_clock_redraw_handler(struct widget *widget, void *data)
+{
+	PanelClock *clock = static_cast<PanelClock *>(data);
+	cairo_t *cr;
+	struct rectangle allocation;
+	cairo_text_extents_t extents;
+	time_t rawtime;
+	struct tm * timeinfo;
+	char string[128];
+
+	time(&rawtime);
+	timeinfo = localtime(&rawtime);
+	strftime(string, sizeof string, clock->format_string, timeinfo);
+
+	widget_get_allocation(widget, &allocation);
+	if (allocation.width == 0)
+		return;
+
+	cr = widget_cairo_create(clock->panel->widget);
+	cairo_set_font_size(cr, 14);
+	cairo_text_extents(cr, string, &extents);
+	if (allocation.x > 0)
+		allocation.x +=
+			allocation.width - DEFAULT_SPACING * 1.5 - extents.width;
+	else
+		allocation.x +=
+			allocation.width / 2 - extents.width / 2;
+	allocation.y += allocation.height / 2 - 1 + extents.height / 2;
+	cairo_move_to(cr, allocation.x + 1, allocation.y + 1);
+	cairo_set_source_rgba(cr, 0, 0, 0, 0.85);
+	cairo_show_text(cr, string);
+	cairo_move_to(cr, allocation.x, allocation.y);
+	cairo_set_source_rgba(cr, 1, 1, 1, 0.85);
+	cairo_show_text(cr, string);
+	cairo_destroy(cr);
 }
 
 /*void
@@ -471,7 +621,7 @@ PanelLauncher::panel_launcher_tablet_tool_button_handler(struct widget *widget,
 					  void *data)
 {
 	PanelLauncher *launcher;
-	enum zwp_tablet_tool_v2_button_state state = state_w;
+	enum zwp_tablet_tool_v2_button_state state = static_cast<enum zwp_tablet_tool_v2_button_state>(state_w);
 
 	launcher = static_cast<PanelLauncher *>(widget_get_user_data(widget));
 

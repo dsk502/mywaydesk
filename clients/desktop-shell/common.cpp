@@ -26,22 +26,6 @@
 #include "desktop-shell/common.hpp"
 
 void
-check_desktop_ready(struct window *window)
-{
-	struct display *display;
-	struct desktop *desktop;
-
-	display = window_get_display(window);
-	desktop = display_get_user_data(display);
-
-	if (!desktop->painted && is_desktop_painted(desktop)) {
-		desktop->painted = 1;
-
-		weston_desktop_shell_desktop_ready(desktop->shell);
-	}
-}
-
-void
 set_hex_color(cairo_t *cr, uint32_t color)
 {
 	cairo_set_source_rgba(cr,
@@ -49,4 +33,41 @@ set_hex_color(cairo_t *cr, uint32_t color)
 			      ((color >>  8) & 0xff) / 255.0,
 			      ((color >>  0) & 0xff) / 255.0,
 			      ((color >> 24) & 0xff) / 255.0);
+}
+
+cairo_surface_t *
+load_icon_or_fallback(const char *icon)
+{
+	cairo_surface_t *surface = cairo_image_surface_create_from_png(icon);
+	cairo_status_t status;
+	cairo_t *cr;
+
+	status = cairo_surface_status(surface);
+	if (status == CAIRO_STATUS_SUCCESS)
+		return surface;
+
+	cairo_surface_destroy(surface);
+	fprintf(stderr, "ERROR loading icon from file '%s', error: '%s'\n",
+		icon, cairo_status_to_string(status));
+
+	/* draw fallback icon */
+	surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+					     20, 20);
+	cr = cairo_create(surface);
+
+	cairo_set_source_rgba(cr, 0.8, 0.8, 0.8, 1);
+	cairo_paint(cr);
+
+	cairo_set_source_rgba(cr, 0, 0, 0, 1);
+	cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+	cairo_rectangle(cr, 0, 0, 20, 20);
+	cairo_move_to(cr, 4, 4);
+	cairo_line_to(cr, 16, 16);
+	cairo_move_to(cr, 4, 16);
+	cairo_line_to(cr, 16, 4);
+	cairo_stroke(cr);
+
+	cairo_destroy(cr);
+
+	return surface;
 }

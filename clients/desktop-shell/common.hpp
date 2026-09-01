@@ -78,10 +78,10 @@ struct surface {
 			  int32_t width, int32_t height);
 };
 
-void
-check_desktop_ready(struct window *window);
+void check_desktop_ready(struct window *window);
 
-void
-set_hex_color(cairo_t *cr, uint32_t color);
+void set_hex_color(cairo_t *cr, uint32_t color);
+
+cairo_surface_t * load_icon_or_fallback(const char *icon);
 
 #endif

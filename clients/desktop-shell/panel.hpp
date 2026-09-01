@@ -39,7 +39,7 @@ public:
 	struct window *window;	//window is the root wayland window of this shell
 	struct widget *widget;	//widget is the UI component in the wayland window
 	struct wl_list launcher_list;
-	struct panel_clock *clock;
+	PanelClock *clock;
 	int painted;
 	enum weston_desktop_shell_panel_position panel_position;
 	enum clock_format clock_format;
@@ -52,6 +52,14 @@ public:
 	void panel_add_launchers(Desktop *desktop);
 	void panel_add_launcher(const char *icon, const char *path, const char *displayname);
 	void panel_add_clock();
+
+	static void panel_redraw_handler(struct widget *widget, void *data);
+	static void panel_resize_handler(struct widget *widget,
+		     	int32_t width, int32_t height, void *data);
+	static void panel_configure(void *data,
+				struct weston_desktop_shell *desktop_shell,
+				uint32_t edges, struct window *window,
+				int32_t width, int32_t height);
 };
 
 class PanelClock {
@@ -65,6 +73,8 @@ public:
 	~PanelClock();
 
 	int clock_timer_reset();
+
+	static void panel_clock_redraw_handler(struct widget *widget, void *data);
 };
 
 class PanelLauncher {

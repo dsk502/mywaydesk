@@ -128,14 +128,12 @@ Desktop::grab_surface_create()
 void
 Desktop::create_output(uint32_t id)
 {
-	Output *output;
+	Output *output = new Output();
 
-	output = zalloc(sizeof *output);
 	if (!output)
 		return;
 
-	output->output =
-		display_bind(this->display, id, &wl_output_interface, 2);
+	output->output = static_cast<wl_output *>(display_bind(this->display, id, &wl_output_interface, 2));
 	output->server_output_id = id;
 
 	wl_output_add_listener(output->output, &output_listener, output);
@@ -145,7 +143,7 @@ Desktop::create_output(uint32_t id)
 	/* On start up we may process an output global before the shell global
 	 * in which case we can't create the panel and background just yet */
 	if (this->shell)
-		output_init(output, this);
+		output->output_init(this);
 }
 
 void
@@ -155,7 +153,7 @@ Desktop::output_remove(Output *output)
 	Output *rep = NULL;
 
 	if (!output->background) {
-		output_destroy(output);
+		delete output;
 		return;
 	}
 
@@ -206,5 +204,5 @@ Desktop::output_remove(Output *output)
 		}
 	}
 
-	output_destroy(output);
+	delete output;
 }

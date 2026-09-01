@@ -83,6 +83,15 @@ public:
 
 	Dock(Desktop *desktop, Output *output);
 	~Dock();
+
+	//Handlers (callbacks)
+	static void dock_configure(void *data,
+				struct weston_desktop_shell *desktop_shell,
+				uint32_t edges, struct window *window,
+				int32_t width, int32_t height);
+	static void dock_redraw_handler(struct widget *widget, void *data);
+	static void dock_resize_handler(struct widget *widget,
+		     	int32_t width, int32_t height, void *data);
 };
 
 //Dock launcher
@@ -100,6 +109,8 @@ public:
 	char * const *envp;
 
 	~DockLauncher();
+	static int dock_launcher_enter_handler(struct widget *widget, struct input *input, float x, float y, void *data);
+
 };
 
 #endif

@@ -60,18 +60,11 @@
 #include "tablet-unstable-v2-client-protocol.h"
 #include "weston-desktop-shell-client-protocol.h"
 
+#include "desktop-shell/common.hpp"
 #include "desktop.hpp"
-
-#define DEFAULT_CLOCK_FORMAT CLOCK_FORMAT_MINUTES
-#define DEFAULT_SPACING 10
-
-enum clock_format {
-	CLOCK_FORMAT_MINUTES,
-	CLOCK_FORMAT_SECONDS,
-	CLOCK_FORMAT_MINUTES_24H,
-	CLOCK_FORMAT_SECONDS_24H,
-	CLOCK_FORMAT_NONE
-};
+#include "panel.hpp"
+#include "dock.hpp"
+#include "background.hpp"
 
 class Output {
 public:
@@ -83,31 +76,11 @@ public:
 	int y;
 	Panel *panel;
 	Dock *dock;
-	Background *background
+	Background *background;
 
-	Output(Desktop *desktop);
+	Output() {};
+	void output_init(Desktop *desktop);
 	~Output();
 };
-
-Output::Output(Desktop *desktop) {
-	struct wl_surface *surface;
-
-	if (desktop->want_panel) {
-		this->panel = panel_create(desktop, this);
-		surface = window_get_wl_surface(this->panel->window);
-		weston_desktop_shell_set_panel(desktop->shell,
-					       this->output, surface);
-		
-		//Init the dock in the output layer
-		this->dock = dock_create(desktop, this);
-		surface = window_get_wl_surface(this->dock->window);
-		weston_desktop_shell_set_dock(desktop->shell, this->output, surface);
-	}
-
-	this->background = background_create(desktop, this);
-	surface = window_get_wl_surface(this->background->window);
-	weston_desktop_shell_set_background(desktop->shell,
-					    this->output, surface);
-}
 
 #endif

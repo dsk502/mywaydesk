@@ -24,3 +24,29 @@
  */
 
 #include "desktop-shell/common.hpp"
+
+void
+check_desktop_ready(struct window *window)
+{
+	struct display *display;
+	struct desktop *desktop;
+
+	display = window_get_display(window);
+	desktop = display_get_user_data(display);
+
+	if (!desktop->painted && is_desktop_painted(desktop)) {
+		desktop->painted = 1;
+
+		weston_desktop_shell_desktop_ready(desktop->shell);
+	}
+}
+
+void
+set_hex_color(cairo_t *cr, uint32_t color)
+{
+	cairo_set_source_rgba(cr,
+			      ((color >> 16) & 0xff) / 255.0,
+			      ((color >>  8) & 0xff) / 255.0,
+			      ((color >>  0) & 0xff) / 255.0,
+			      ((color >> 24) & 0xff) / 255.0);
+}

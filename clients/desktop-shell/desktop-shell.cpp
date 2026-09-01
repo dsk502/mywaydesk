@@ -62,42 +62,14 @@
 #define DEFAULT_CLOCK_FORMAT CLOCK_FORMAT_MINUTES
 #define DEFAULT_SPACING 10
 
-enum clock_format {
-	CLOCK_FORMAT_MINUTES,
-	CLOCK_FORMAT_SECONDS,
-	CLOCK_FORMAT_MINUTES_24H,
-	CLOCK_FORMAT_SECONDS_24H,
-	CLOCK_FORMAT_NONE
-};
-
-static void
-check_desktop_ready(struct window *window)
-{
-	struct display *display;
-	struct desktop *desktop;
-
-	display = window_get_display(window);
-	desktop = display_get_user_data(display);
-
-	if (!desktop->painted && is_desktop_painted(desktop)) {
-		desktop->painted = 1;
-
-		weston_desktop_shell_desktop_ready(desktop->shell);
-	}
-}
-
-
-
-
-
 static void
 unlock_dialog_finish(struct task *task, uint32_t events)
 {
-	struct desktop *desktop =
-		container_of(task, struct desktop, unlock_task);
+	Desktop *desktop =
+		container_of(task, Desktop, unlock_task);
 
 	weston_desktop_shell_unlock(desktop->shell);
-	unlock_dialog_destroy(desktop->unlock_dialog);
+	delete (desktop->unlock_dialog);
 	desktop->unlock_dialog = NULL;
 }
 
@@ -116,15 +88,7 @@ sigchild_handler(int s)
 		fprintf(stderr, "child %d exited\n", pid);
 }
 
-static void
-set_hex_color(cairo_t *cr, uint32_t color)
-{
-	cairo_set_source_rgba(cr,
-			      ((color >> 16) & 0xff) / 255.0,
-			      ((color >>  8) & 0xff) / 255.0,
-			      ((color >>  0) & 0xff) / 255.0,
-			      ((color >> 24) & 0xff) / 255.0);
-}
+
 
 static void
 panel_redraw_handler(struct widget *widget, void *data)
@@ -328,132 +292,9 @@ load_icon_or_fallback(const char *icon)
 
 
 
-enum {
-	BACKGROUND_SCALE,
-	BACKGROUND_SCALE_CROP,
-	BACKGROUND_TILE,
-	BACKGROUND_CENTERED
-};
 
-static void
-background_draw(struct widget *widget, void *data)
-{
-	struct background *background = data;
-	cairo_surface_t *surface, *image;
-	cairo_pattern_t *pattern;
-	cairo_matrix_t matrix;
-	cairo_t *cr;
-	double im_w, im_h;
-	double sx, sy, s;
-	double tx, ty;
-	struct rectangle allocation;
 
-	surface = window_get_surface(background->window);
 
-	cr = widget_cairo_create(background->widget);
-	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-	if (background->color == 0)
-		cairo_set_source_rgba(cr, 0.0, 0.0, 0.2, 1.0);
-	else
-		set_hex_color(cr, background->color);
-	cairo_paint(cr);
-
-	widget_get_allocation(widget, &allocation);
-	image = NULL;
-	if (background->image)
-		image = load_cairo_surface(background->image);
-	else if (background->color == 0) {
-		char *name = file_name_with_datadir("pattern.png");
-
-		image = load_cairo_surface(name);
-		free(name);
-	}
-
-	if (image && background->type != -1) {
-		im_w = cairo_image_surface_get_width(image);
-		im_h = cairo_image_surface_get_height(image);
-		sx = im_w / allocation.width;
-		sy = im_h / allocation.height;
-
-		pattern = cairo_pattern_create_for_surface(image);
-
-		switch (background->type) {
-		case BACKGROUND_SCALE:
-			cairo_matrix_init_scale(&matrix, sx, sy);
-			cairo_pattern_set_matrix(pattern, &matrix);
-			cairo_pattern_set_extend(pattern, CAIRO_EXTEND_PAD);
-			break;
-		case BACKGROUND_SCALE_CROP:
-			s = (sx < sy) ? sx : sy;
-			/* align center */
-			tx = (im_w - s * allocation.width) * 0.5;
-			ty = (im_h - s * allocation.height) * 0.5;
-			cairo_matrix_init_translate(&matrix, tx, ty);
-			cairo_matrix_scale(&matrix, s, s);
-			cairo_pattern_set_matrix(pattern, &matrix);
-			cairo_pattern_set_extend(pattern, CAIRO_EXTEND_PAD);
-			break;
-		case BACKGROUND_TILE:
-			cairo_pattern_set_extend(pattern, CAIRO_EXTEND_REPEAT);
-			break;
-		case BACKGROUND_CENTERED:
-			s = (sx < sy) ? sx : sy;
-			if (s < 1.0)
-				s = 1.0;
-
-			/* align center */
-			tx = (im_w - s * allocation.width) * 0.5;
-			ty = (im_h - s * allocation.height) * 0.5;
-
-			cairo_matrix_init_translate(&matrix, tx, ty);
-			cairo_matrix_scale(&matrix, s, s);
-			cairo_pattern_set_matrix(pattern, &matrix);
-			break;
-		}
-
-		cairo_set_source(cr, pattern);
-		cairo_pattern_destroy (pattern);
-		cairo_surface_destroy(image);
-		cairo_mask(cr, pattern);
-	}
-
-	cairo_destroy(cr);
-	cairo_surface_destroy(surface);
-
-	background->painted = 1;
-	check_desktop_ready(background->window);
-}
-
-/*
-static void
-background_destroy(struct background *background);*/
-
-static void
-background_configure(void *data,
-		     struct weston_desktop_shell *desktop_shell,
-		     uint32_t edges, struct window *window,
-		     int32_t width, int32_t height)
-{
-	struct output *owner;
-	struct background *background =
-		(struct background *) window_get_user_data(window);
-
-	if (width < 1 || height < 1) {
-		/* Shell plugin configures 0x0 for redundant background. */
-		owner = background->owner;
-		background_destroy(background);
-		owner->background = NULL;
-		return;
-	}
-
-	if (!background->image && background->color) {
-		widget_set_viewport_destination(background->widget, width, height);
-		width = 1;
-		height = 1;
-	}
-
-	widget_schedule_resize(background->widget, width, height);
-}
 
 static void
 unlock_dialog_redraw_handler(struct widget *widget, void *data)
@@ -661,53 +502,7 @@ static const struct weston_desktop_shell_listener listener = {
 
 
 
-static struct background *
-background_create(struct desktop *desktop, struct output *output)
-{
-	struct background *background;
-	struct weston_config_section *s;
-	char *type;
 
-	background = xzalloc(sizeof *background);
-	background->owner = output;
-	background->base.configure = background_configure;
-	background->window = window_create_custom(desktop->display);
-	background->widget = window_add_widget(background->window, background);
-	window_set_user_data(background->window, background);
-	widget_set_redraw_handler(background->widget, background_draw);
-	widget_set_transparent(background->widget, 0);
-
-	s = weston_config_get_section(desktop->config, "shell", NULL, NULL);
-	weston_config_section_get_string(s, "background-image",
-					 &background->image, NULL);
-	weston_config_section_get_color(s, "background-color",
-					&background->color, 0x00000000);
-
-	weston_config_section_get_string(s, "background-type",
-					 &type, "tile");
-	if (type == NULL) {
-		fprintf(stderr, "%s: out of memory\n", program_invocation_short_name);
-		exit(EXIT_FAILURE);
-	}
-
-	if (strcmp(type, "scale") == 0) {
-		background->type = BACKGROUND_SCALE;
-	} else if (strcmp(type, "scale-crop") == 0) {
-		background->type = BACKGROUND_SCALE_CROP;
-	} else if (strcmp(type, "tile") == 0) {
-		background->type = BACKGROUND_TILE;
-	} else if (strcmp(type, "centered") == 0) {
-		background->type = BACKGROUND_CENTERED;
-	} else {
-		background->type = -1;
-		fprintf(stderr, "invalid background-type: %s\n",
-			type);
-	}
-
-	free(type);
-
-	return background;
-}
 
 static int
 grab_surface_enter_handler(struct widget *widget, struct input *input,
@@ -838,99 +633,9 @@ global_handler_remove(struct display *display, uint32_t id,
 
 
 
-static void
-dock_redraw_handler(struct widget *widget, void *data)
-{
-	cairo_surface_t *surface;
-	cairo_t *cr;
-	struct dock *dock = data;
 
-	cr = widget_cairo_create(dock->widget);
-	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-	set_hex_color(cr, dock->color);
-	cairo_paint(cr);
 
-	cairo_destroy(cr);
-	surface = window_get_surface(dock->window);
-	cairo_surface_destroy(surface);
-	dock->painted = 1;
-	check_desktop_ready(dock->window);
-}
 
-static void
-dock_resize_handler(struct widget *widget,
-		     int32_t width, int32_t height, void *data)
-{
-	struct dock_launcher *launcher;
-	struct dock *dock = data;
-	int x = 0;
-	int y = 0;
-	int w = height > width ? width : height;
-	int h = w;
-	int horizontal;
-
-	if (dock->dock_position == WESTON_DESKTOP_SHELL_DOCK_POSITION_BOTTOM ||
-		dock->dock_position == WESTON_DESKTOP_SHELL_DOCK_POSITION_TOP) {
-		horizontal = 1;
-	} else {
-		horizontal = 0;
-	}
-
-	int first_pad_h = horizontal ? 0 : DEFAULT_SPACING / 2;
-	int first_pad_w = horizontal ? DEFAULT_SPACING / 2 : 0;
-
-	w = 170;
-
-	if (horizontal)
-		x = width - w;
-	else
-		y = height - (h = DEFAULT_SPACING * 3);
-
-}
-
-static int
-dock_launcher_enter_handler(struct widget *widget, struct input *input, float x, float y, void *data)
-{
-	struct dock_launcher *launcher = data;
-
-	launcher->focused = 1;
-	widget_schedule_redraw(widget);
-
-	return CURSOR_LEFT_PTR;
-}
-
-static void
-dock_configure(void *data,
-		struct weston_desktop_shell *desktop_shell,
-		uint32_t edges, struct window *window,
-		int32_t width, int32_t height)
-{
-	struct desktop *desktop = data;
-	struct surface *surface = window_get_user_data(window);
-	struct dock *dock = container_of(surface, struct dock, base);
-	struct output *owner;
-
-	if (width < 1 || height < 1) {
-		/* Shell plugin configures 0x0 for redundant dock. */
-		owner = dock->owner;
-		//Destroy the dock
-		dock_destroy(dock);
-		owner->dock = NULL;
-		return;
-	}
-
-	switch (desktop->dock_position) {
-		case WESTON_DESKTOP_SHELL_DOCK_POSITION_TOP:
-		case WESTON_DESKTOP_SHELL_DOCK_POSITION_BOTTOM:
-			height = 64;
-			break;
-		case WESTON_DESKTOP_SHELL_DOCK_POSITION_LEFT:
-		case WESTON_DESKTOP_SHELL_DOCK_POSITION_RIGHT:
-			//Todo here
-			break;
-	}
-	window_schedule_resize(dock->window, width, height);
-}
 
 
 

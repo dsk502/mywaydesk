@@ -71,19 +71,21 @@ Panel::Panel(Desktop *desktop, Output *output)
 
 Panel::~Panel()
 {
-	struct panel_launcher *tmp;
-	struct panel_launcher *launcher;
+	PanelLauncher *tmp;
+	PanelLauncher *launcher;
 
 	if (this->clock)
-		panel_destroy_clock(this->clock);
+		delete (this->clock);
+		//panel_destroy_clock(this->clock);
 
 	wl_list_for_each_safe(launcher, tmp, &this->launcher_list, link)
-		panel_destroy_launcher(launcher);
+		delete launcher;
+		//panel_destroy_launcher(launcher);
 
 	widget_destroy(this->widget);
 	window_destroy(this->window);
 
-	free(this);
+	//free(this);
 }
 
 void
@@ -108,7 +110,7 @@ Panel::panel_add_launchers(Desktop *desktop)
 			displayname = xstrdup(basename(path));
 
 		if (icon != NULL && path != NULL) {
-			panel_add_launcher(this, icon, path, displayname);
+			panel_add_launcher(icon, path, displayname);
 			count++;
 		} else {
 			fprintf(stderr, "invalid launcher section\n");
@@ -123,8 +125,7 @@ Panel::panel_add_launchers(Desktop *desktop)
 		char *name = file_name_with_datadir("terminal.png");
 
 		/* add default launcher */
-		panel_add_launcher(this,
-				   name,
+		panel_add_launcher(name,
 				   BINDIR "/weston-terminal",
 				   "Terminal");
 		free(name);
@@ -158,26 +159,26 @@ Panel::panel_add_launcher(const char *icon, const char *path, const char *displa
 
 	launcher->widget = widget_add_widget(this->widget, launcher);
 	widget_set_enter_handler(launcher->widget,
-				 panel_launcher_enter_handler);
+				PanelLauncher::panel_launcher_enter_handler);
 	widget_set_leave_handler(launcher->widget,
-				   panel_launcher_leave_handler);
+				PanelLauncher::panel_launcher_leave_handler);
 	widget_set_button_handler(launcher->widget,
-				    panel_launcher_button_handler);
+				PanelLauncher::panel_launcher_button_handler);
 	widget_set_touch_down_handler(launcher->widget,
-				      panel_launcher_touch_down_handler);
+				PanelLauncher::panel_launcher_touch_down_handler);
 	widget_set_touch_up_handler(launcher->widget,
-				    panel_launcher_touch_up_handler);
+				PanelLauncher::panel_launcher_touch_up_handler);
 	widget_set_tablet_tool_up_handler(launcher->widget,
-				panel_launcher_tablet_tool_up_handler);
+				PanelLauncher::panel_launcher_tablet_tool_up_handler);
 	widget_set_tablet_tool_proximity_handlers(launcher->widget,
-				panel_launcher_tablet_tool_proximity_in_handler,
-				panel_launcher_tablet_tool_proximity_out_handler);
+				PanelLauncher::panel_launcher_tablet_tool_proximity_in_handler,
+				PanelLauncher::panel_launcher_tablet_tool_proximity_out_handler);
 	widget_set_tablet_tool_button_handler(launcher->widget,
-				panel_launcher_tablet_tool_button_handler);
+				PanelLauncher::panel_launcher_tablet_tool_button_handler);
 	widget_set_redraw_handler(launcher->widget,
-				  panel_launcher_redraw_handler);
+				PanelLauncher::panel_launcher_redraw_handler);
 	widget_set_motion_handler(launcher->widget,
-				  panel_launcher_motion_handler);
+				PanelLauncher::panel_launcher_motion_handler);
 }
 
 void

@@ -26,50 +26,8 @@
 #ifndef _DS_DESKTOP_HPP_	//desktop-shell/desktop.hpp
 #define _DS_DESKTOP_HPP_
 
-#include "config.h"
-
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <errno.h>
-#include <math.h>
-#include <cairo.h>
-#include <sys/wait.h>
-#include <linux/input.h>
-#include <libgen.h>
-#include <ctype.h>
-#include <time.h>
-#include <assert.h>
-
-#include <wayland-client.h>
-
-#include <libweston/config-parser.h>
-#include <libweston/zalloc.h>
-#include "shared/helpers.h"
-#include "shared/xalloc.h"
-#include "shared/cairo-util.h"
-#include "shared/file-util.h"
-#include "shared/process-util.h"
-#include "shared/timespec-util.h"
-
-#include "window.h"
-
-#include "tablet-unstable-v2-client-protocol.h"
-#include "weston-desktop-shell-client-protocol.h"
-
-#define DEFAULT_CLOCK_FORMAT CLOCK_FORMAT_MINUTES
-#define DEFAULT_SPACING 10
-
-enum clock_format {
-	CLOCK_FORMAT_MINUTES,
-	CLOCK_FORMAT_SECONDS,
-	CLOCK_FORMAT_MINUTES_24H,
-	CLOCK_FORMAT_SECONDS_24H,
-	CLOCK_FORMAT_NONE
-};
+#include "output.hpp"
+#include "desktop-shell/common.hpp"
 
 class Desktop {
 public:

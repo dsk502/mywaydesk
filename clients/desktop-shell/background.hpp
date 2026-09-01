@@ -61,7 +61,15 @@
 #include "weston-desktop-shell-client-protocol.h"
 
 #include "output.hpp"
+#include "desktop.hpp"
 #include "desktop-shell/common.hpp"
+
+enum {
+	BACKGROUND_SCALE,
+	BACKGROUND_SCALE_CROP,
+	BACKGROUND_TILE,
+	BACKGROUND_CENTERED
+};
 
 class Background {
 public:
@@ -75,7 +83,16 @@ public:
 	int type;
 	uint32_t color;
 
+	Background(Desktop *desktop, Output *output);
 	~Background();
+
+	//Callbacks
+	static void background_draw(struct widget *widget, void *data);
+	
+	static void background_configure(void *data,
+				struct weston_desktop_shell *desktop_shell,
+				uint32_t edges, struct window *window,
+				int32_t width, int32_t height);
 };
 
 #endif

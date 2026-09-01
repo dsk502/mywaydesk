@@ -23,18 +23,40 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+#include "output.hpp"
  /*static void
 output_destroy(struct output *output)*/
+
+void
+Output::output_init(Desktop *desktop) {
+	struct wl_surface *surface;
+
+	if (desktop->want_panel) {
+		this->panel = new Panel(desktop, this);
+		surface = window_get_wl_surface(this->panel->window);
+		weston_desktop_shell_set_panel(desktop->shell,
+					       this->output, surface);
+		
+		//Init the dock in the output layer
+		this->dock = new Dock(desktop, this);
+		surface = window_get_wl_surface(this->dock->window);
+		weston_desktop_shell_set_dock(desktop->shell, this->output, surface);
+	}
+
+	this->background = new Background(desktop, this);
+	surface = window_get_wl_surface(this->background->window);
+	weston_desktop_shell_set_background(desktop->shell,
+					    this->output, surface);
+}
 
 Output::~Output()
 {
 	if (this->background)
-		background_destroy(this->background);
+		delete background;
 	if (this->panel)
-		//panel->~Panel();
 		delete panel;
 	if (this->dock)
-		dock_destroy(this->dock);
+		delete dock;
 	wl_output_destroy(this->output);
 	wl_list_remove(&this->link);
 }

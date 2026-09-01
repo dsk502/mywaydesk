@@ -69,9 +69,241 @@ enum clock_format {
 };
 
 class Desktop {
+public:
+	struct display *display;
+	struct weston_desktop_shell *shell;
+	struct unlock_dialog *unlock_dialog;
+	struct task unlock_task;
+	struct wl_list outputs;
 
+	int want_panel;
+	enum weston_desktop_shell_panel_position panel_position;
+	enum weston_desktop_shell_dock_position dock_position;
+	enum clock_format clock_format;
+
+	struct window *grab_window;
+	struct widget *grab_widget;
+
+	struct weston_config *config;
+	bool locking;
+
+	enum cursor_type grab_cursor;
+
+	int painted;
+
+	int is_desktop_painted();
+	//void check_desktop_ready(struct window *window);
+	void parse_panel_position(struct weston_config_section *s);
+	void parse_dock_position(struct weston_config_section *s);
+	void parse_clock_format(struct weston_config_section *s);
+
+	void grab_surface_destroy();
+	void grab_surface_create();
+
+	void create_output(uint32_t id);
+	void output_remove(Output *output);
 };
 
+int
+Desktop::is_desktop_painted()
+{
+	Output *output;
+
+	wl_list_for_each(output, &this->outputs, link) {
+		if (output->panel && !output->panel->painted)
+			return 0;
+		if (output->background && !output->background->painted)
+			return 0;
+		if (output->dock && !output->dock->painted)
+    		return 0;
+	}
+
+	return 1;
+}
+
+void
+Desktop::parse_panel_position(struct weston_config_section *s)
+{
+	char *position;
+
+	this->want_panel = 1;
+
+	weston_config_section_get_string(s, "panel-position", &position, "top");
+	if (strcmp(position, "top") == 0) {
+		this->panel_position = WESTON_DESKTOP_SHELL_PANEL_POSITION_TOP;
+	} else if (strcmp(position, "bottom") == 0) {
+		this->panel_position = WESTON_DESKTOP_SHELL_PANEL_POSITION_BOTTOM;
+	} else if (strcmp(position, "left") == 0) {
+		this->panel_position = WESTON_DESKTOP_SHELL_PANEL_POSITION_LEFT;
+	} else if (strcmp(position, "right") == 0) {
+		this->panel_position = WESTON_DESKTOP_SHELL_PANEL_POSITION_RIGHT;
+	} else {
+		/* 'none' is valid here */
+		if (strcmp(position, "none") != 0)
+			fprintf(stderr, "Wrong panel position: %s\n", position);
+		this->want_panel = 0;
+	}
+	free(position);
+}
+
+void
+Desktop::parse_clock_format(struct weston_config_section *s)
+{
+	char *clock_format;
+
+	weston_config_section_get_string(s, "clock-format", &clock_format, "");
+	if (strcmp(clock_format, "minutes") == 0)
+		this->clock_format = CLOCK_FORMAT_MINUTES;
+	else if (strcmp(clock_format, "seconds") == 0)
+		this->clock_format = CLOCK_FORMAT_SECONDS;
+	else if (strcmp(clock_format, "minutes-24h") == 0)
+		this->clock_format = CLOCK_FORMAT_MINUTES_24H;
+	else if (strcmp(clock_format, "seconds-24h") == 0)
+		this->clock_format = CLOCK_FORMAT_SECONDS_24H;
+	else if (strcmp(clock_format, "none") == 0)
+		this->clock_format = CLOCK_FORMAT_NONE;
+	else
+		this->clock_format = DEFAULT_CLOCK_FORMAT;
+	free(clock_format);
+}
+
+void
+Desktop::parse_dock_position(struct weston_config_section *s)
+{
+	//char* position;
+
+	//Currently, only support bottom dock
+	this->dock_position = WESTON_DESKTOP_SHELL_DOCK_POSITION_BOTTOM;
+}
+
+void
+Desktop::grab_surface_destroy()
+{
+	widget_destroy(this->grab_widget);
+	window_destroy(this->grab_window);
+}
+
+void
+Desktop::grab_surface_create()
+{
+	struct wl_surface *s;
+
+	this->grab_window = window_create_custom(this->display);
+	window_set_user_data(this->grab_window, this);
+
+	s = window_get_wl_surface(this->grab_window);
+	weston_desktop_shell_set_grab_surface(this->shell, s);
+
+	this->grab_widget =
+		window_add_widget(this->grab_window, this);
+	/* We set the allocation to 1x1 at 0,0 so the fake enter event
+	 * at 0,0 will go to this widget. */
+	widget_set_allocation(this->grab_widget, 0, 0, 1, 1);
+
+	widget_set_enter_handler(this->grab_widget,
+				 grab_surface_enter_handler);
+}
+
+void
+Desktop::create_output(uint32_t id)
+{
+	Output *output;
+
+	output = zalloc(sizeof *output);
+	if (!output)
+		return;
+
+	output->output =
+		display_bind(this->display, id, &wl_output_interface, 2);
+	output->server_output_id = id;
+
+	wl_output_add_listener(output->output, &output_listener, output);
+
+	wl_list_insert(&this->outputs, &output->link);
+
+	/* On start up we may process an output global before the shell global
+	 * in which case we can't create the panel and background just yet */
+	if (this->shell)
+		output_init(output, this);
+}
+
+void
+Desktop::output_remove(Output *output)
+{
+	Output *cur;
+	Output *rep = NULL;
+
+	if (!output->background) {
+		output_destroy(output);
+		return;
+	}
+
+	/* Find a wl_output that is a clone of the removed wl_output.
+	 * We don't want to leave the clone without a background or panel. */
+	wl_list_for_each(cur, &this->outputs, link) {
+		if (cur == output)
+			continue;
+
+		/* XXX: Assumes size matches. */
+		if (cur->x == output->x && cur->y == output->y) {
+			rep = cur;
+			break;
+		}
+	}
+
+	if (rep) {
+		/* If found and it does not already have a background or panel,
+		 * hand over the background and panel so they don't get
+		 * destroyed.
+		 *
+		 * We never create multiple backgrounds or panels for clones,
+		 * but if the compositor moves outputs, a pair of wl_outputs
+		 * might become "clones". This may happen temporarily when
+		 * an output is about to be removed and the rest are reflowed.
+		 * In this case it is correct to let the background/panel be
+		 * destroyed.
+		 */
+
+		if (!rep->background) {
+			rep->background = output->background;
+			output->background = NULL;
+			rep->background->owner = rep;
+		}
+
+		if (!rep->panel) {
+			rep->panel = output->panel;
+			output->panel = NULL;
+			if (rep->panel)
+				rep->panel->owner = rep;
+		}
+
+		if(!rep->dock) {
+			rep->dock = output->dock;
+			output->dock = NULL;
+			if (rep->dock)
+				rep->dock->owner = rep;
+		}
+	}
+
+	output_destroy(output);
+}
+
+static void
+check_desktop_ready(struct window *window)
+{
+	struct display *display;
+	struct desktop *desktop;
+
+	display = window_get_display(window);
+	desktop = display_get_user_data(display);
+
+	if (!desktop->painted && is_desktop_painted(desktop)) {
+		desktop->painted = 1;
+
+		weston_desktop_shell_desktop_ready(desktop->shell);
+	}
+}
+/*
 struct desktop {
 	struct display *display;
 	struct weston_desktop_shell *shell;
@@ -93,7 +325,7 @@ struct desktop {
 	enum cursor_type grab_cursor;
 
 	int painted;
-};
+};*/
 
 struct surface {
 	void (*configure)(void *data,
@@ -102,20 +334,325 @@ struct surface {
 			  int32_t width, int32_t height);
 };
 
-struct output;
+//struct output;
 
 class Output {
+public:
+	struct wl_output *output;
+	uint32_t server_output_id;
+	struct wl_list link;
 
+	int x;
+	int y;
+	Panel *panel;
+	Dock *dock;
+	Background *background
+
+	Output(Desktop *desktop);
+	~Output();
 };
 
+Output::Output(Desktop *desktop) {
+	struct wl_surface *surface;
+
+	if (desktop->want_panel) {
+		this->panel = panel_create(desktop, this);
+		surface = window_get_wl_surface(this->panel->window);
+		weston_desktop_shell_set_panel(desktop->shell,
+					       this->output, surface);
+		
+		//Init the dock in the output layer
+		this->dock = dock_create(desktop, this);
+		surface = window_get_wl_surface(this->dock->window);
+		weston_desktop_shell_set_dock(desktop->shell, this->output, surface);
+	}
+
+	this->background = background_create(desktop, this);
+	surface = window_get_wl_surface(this->background->window);
+	weston_desktop_shell_set_background(desktop->shell,
+					    this->output, surface);
+}
+
+/*static void
+output_destroy(struct output *output)*/
+
+Output::~Output()
+{
+	if (this->background)
+		background_destroy(this->background);
+	if (this->panel)
+		//panel->~Panel();
+		delete panel;
+	if (this->dock)
+		dock_destroy(this->dock);
+	wl_output_destroy(this->output);
+	wl_list_remove(&this->link);
+}
+
+//Init the display screen
+/*
+static void
+output_init(struct output *output, struct desktop *desktop)
+{
+	struct wl_surface *surface;
+
+	if (desktop->want_panel) {
+		output->panel = panel_create(desktop, output);
+		surface = window_get_wl_surface(output->panel->window);
+		weston_desktop_shell_set_panel(desktop->shell,
+					       output->output, surface);
+		
+		//Init the dock in the output layer
+		output->dock = dock_create(desktop, output);
+		surface = window_get_wl_surface(output->dock->window);
+		weston_desktop_shell_set_dock(desktop->shell, output->output, surface);
+	}
+
+	output->background = background_create(desktop, output);
+	surface = window_get_wl_surface(output->background->window);
+	weston_desktop_shell_set_background(desktop->shell,
+					    output->output, surface);
+}
+*/
 class Panel {
+public:
+	struct surface base;
 
+	Output *owner;	//output is the display device (screen)
+
+	struct window *window;	//window is the root wayland window of this shell
+	struct widget *widget;	//widget is the UI component in the wayland window
+	struct wl_list launcher_list;
+	struct panel_clock *clock;
+	int painted;
+	enum weston_desktop_shell_panel_position panel_position;
+	enum clock_format clock_format;
+	uint32_t color;
+
+	Panel(Desktop *desktop, Output *output);
+	~Panel();
+
+	void panel_add_launchers(Desktop *desktop);
+	void panel_add_launcher(const char *icon, const char *path, const char *displayname);
 };
+
+/*static struct panel *
+panel_create(struct desktop *desktop, struct output *output)*/
+Panel::Panel(Desktop *desktop, Output *output)
+{
+	//struct panel *panel;
+	struct weston_config_section *s;
+
+	//panel = xzalloc(sizeof *panel);
+
+	this->owner = output;
+	//Set base configure function for panel
+	this->base.configure = panel_configure;
+	this->window = window_create_custom(desktop->display);
+	this->widget = window_add_widget(this->window, this);
+	wl_list_init(&this->launcher_list);
+
+	window_set_title(this->window, "panel");
+	//Todo: fix problems of void *data (this)
+	window_set_user_data(this->window, this);
+
+	//Set redraw and resize handlers
+	widget_set_redraw_handler(this->widget, panel_redraw_handler);
+	widget_set_resize_handler(this->widget, panel_resize_handler);
+
+	//Panel position
+	this->panel_position = desktop->panel_position;
+
+	//Clock
+	//Todo: fix the clock addition
+	this->clock_format = desktop->clock_format;
+	if (this->clock_format != CLOCK_FORMAT_NONE)
+		panel_add_clock(this);
+
+	//Read the configuration file
+	s = weston_config_get_section(desktop->config, "shell", NULL, NULL);
+	weston_config_section_get_color(s, "panel-color",
+					&panel->color, 0xaa000000);
+
+	//Todo: check the invoke
+	panel_add_launchers(desktop);
+
+	//return panel;
+}
+
+Panel::~Panel()
+{
+	struct panel_launcher *tmp;
+	struct panel_launcher *launcher;
+
+	if (this->clock)
+		panel_destroy_clock(this->clock);
+
+	wl_list_for_each_safe(launcher, tmp, &this->launcher_list, link)
+		panel_destroy_launcher(launcher);
+
+	widget_destroy(this->widget);
+	window_destroy(this->window);
+
+	free(this);
+}
+
+void
+Panel::panel_add_launchers(Desktop *desktop)
+{
+	struct weston_config_section *s;
+	char *icon, *path, *displayname;
+	const char *name;
+	int count;
+
+	count = 0;
+	s = NULL;
+	//Iterate the configuration file weston.ini, find installed applications mentioned in the file, and add them to the panel
+	while (weston_config_next_section(desktop->config, &s, &name)) {
+		if (strcmp(name, "launcher") != 0)
+			continue;
+
+		weston_config_section_get_string(s, "icon", &icon, NULL);
+		weston_config_section_get_string(s, "path", &path, NULL);
+		weston_config_section_get_string(s, "displayname", &displayname, NULL);
+		if (displayname == NULL)
+			displayname = xstrdup(basename(path));
+
+		if (icon != NULL && path != NULL) {
+			panel_add_launcher(this, icon, path, displayname);
+			count++;
+		} else {
+			fprintf(stderr, "invalid launcher section\n");
+		}
+
+		free(icon);
+		free(path);
+		free(displayname);
+	}
+
+	if (count == 0) {
+		char *name = file_name_with_datadir("terminal.png");
+
+		/* add default launcher */
+		panel_add_launcher(this,
+				   name,
+				   BINDIR "/weston-terminal",
+				   "Terminal");
+		free(name);
+	}
+}
+
+/*
+static void
+panel_add_launcher(struct panel *panel, const char *icon, const char *path, const char *displayname)
+*/
+
+void
+Panel::panel_add_launcher(const char *icon, const char *path, const char *displayname)
+{
+	//Todo: fix the memory problem of PanelLauncher
+	PanelLauncher *launcher;
+
+	launcher = xzalloc(sizeof *launcher);
+	launcher->icon = load_icon_or_fallback(icon);
+	launcher->path = xstrdup(path);
+	launcher->displayname = xstrdup(displayname);
+
+	custom_env_init_from_environ(&launcher->env);
+	custom_env_add_from_exec_string(&launcher->env, launcher->path);
+	launcher->envp = custom_env_get_envp(&launcher->env);
+	launcher->argp = custom_env_get_argp(&launcher->env);
+
+	launcher->panel = this;
+	wl_list_insert(this->launcher_list.prev, &launcher->link);
+
+	launcher->widget = widget_add_widget(this->widget, launcher);
+	widget_set_enter_handler(launcher->widget,
+				 panel_launcher_enter_handler);
+	widget_set_leave_handler(launcher->widget,
+				   panel_launcher_leave_handler);
+	widget_set_button_handler(launcher->widget,
+				    panel_launcher_button_handler);
+	widget_set_touch_down_handler(launcher->widget,
+				      panel_launcher_touch_down_handler);
+	widget_set_touch_up_handler(launcher->widget,
+				    panel_launcher_touch_up_handler);
+	widget_set_tablet_tool_up_handler(launcher->widget,
+				panel_launcher_tablet_tool_up_handler);
+	widget_set_tablet_tool_proximity_handlers(launcher->widget,
+				panel_launcher_tablet_tool_proximity_in_handler,
+				panel_launcher_tablet_tool_proximity_out_handler);
+	widget_set_tablet_tool_button_handler(launcher->widget,
+				panel_launcher_tablet_tool_button_handler);
+	widget_set_redraw_handler(launcher->widget,
+				  panel_launcher_redraw_handler);
+	widget_set_motion_handler(launcher->widget,
+				  panel_launcher_motion_handler);
+}
+
+static void
+panel_add_clock(struct panel *panel)
+{
+	struct panel_clock *clock;
+
+	clock = xzalloc(sizeof *clock);
+	clock->panel = panel;
+	panel->clock = clock;
+
+	switch (panel->clock_format) {
+	case CLOCK_FORMAT_MINUTES:
+		clock->format_string = "%a %b %d, %I:%M %p";
+		clock->refresh_timer = 60;
+		break;
+	case CLOCK_FORMAT_SECONDS:
+		clock->format_string = "%a %b %d, %I:%M:%S %p";
+		clock->refresh_timer = 1;
+		break;
+	case CLOCK_FORMAT_MINUTES_24H:
+		clock->format_string = "%a %b %d, %H:%M";
+		clock->refresh_timer = 60;
+		break;
+	case CLOCK_FORMAT_SECONDS_24H:
+		clock->format_string = "%a %b %d, %H:%M:%S";
+		clock->refresh_timer = 1;
+		break;
+	case CLOCK_FORMAT_NONE:
+		assert(!"not reached");
+	}
+
+	toytimer_init(&clock->timer, CLOCK_MONOTONIC,
+		      window_get_display(panel->window), clock_func);
+	clock_timer_reset(clock);
+
+	clock->widget = widget_add_widget(panel->widget, clock);
+	widget_set_redraw_handler(clock->widget, panel_clock_redraw_handler);
+}
 
 class Background {
+public:
+	struct surface base;
+	Output *owner;
+	struct window *window;
+	struct widget *widget;
+	int painted;
 
+	char *image;
+	int type;
+	uint32_t color;
+
+	~Background();
 };
 
+Background::~Background()
+{
+	widget_destroy(this->widget);
+	window_destroy(this->window);
+
+	free(this->image);
+	//free(this);
+}
+
+/*
 struct panel {
 	struct surface base;
 
@@ -130,7 +667,9 @@ struct panel {
 	enum clock_format clock_format;
 	uint32_t color;
 };
+*/
 
+/*
 struct background {
 	struct surface base;
 
@@ -143,8 +682,9 @@ struct background {
 	char *image;
 	int type;
 	uint32_t color;
-};
+};*/
 
+/*
 struct output {
 	struct wl_output *output;
 	uint32_t server_output_id;
@@ -155,11 +695,13 @@ struct output {
 	struct panel *panel;
 	struct dock *dock;
 	struct background *background;
-};
+};*/
 
-struct panel_launcher {
+class PanelLauncher {
+public:
+	//Datafields
 	struct widget *widget;
-	struct panel *panel;
+	Panel *panel;
 	cairo_surface_t *icon;
 	int focused, pressed;
 	char *path;
@@ -168,107 +710,53 @@ struct panel_launcher {
 	struct custom_env env;
 	char * const *argp;
 	char * const *envp;
+
+	//Methods
+	~PanelLauncher();
+	void panel_launcher_activate();
+
+	/*
+	void panel_launcher_redraw_handler(struct widget *widget, void *data);
+	int panel_launcher_motion_handler(struct widget *widget, struct input *input,
+				uint32_t time, float x, float y, void *data);
+
+	int panel_launcher_enter_handler(struct widget *widget, struct input *input,
+				float x, float y, void *data);
+	void panel_launcher_leave_handler(struct widget *widget,
+				struct input *input, void *data);
+
+	void panel_launcher_button_handler(struct widget *widget,
+				struct input *input, uint32_t time,
+			    uint32_t button,
+			    enum wl_pointer_button_state state, void *data);
+
+	void panel_launcher_touch_down_handler(struct widget *widget, struct input *input,
+				uint32_t serial, uint32_t time, int32_t id,
+				float x, float y, void *data);
+    void panel_launcher_touch_up_handler(struct widget *widget, struct input *input,
+				uint32_t serial, uint32_t time, int32_t id,
+				void *data);
+
+	void panel_launcher_tablet_tool_proximity_in_handler(struct widget *widget,
+				struct tablet_tool *tool,
+				struct tablet *tablet, void *data);
+	void panel_launcher_tablet_tool_proximity_out_handler(struct widget *widget,
+				struct tablet_tool *tool, void *data);
+
+	void panel_launcher_tablet_tool_up_handler(struct widget *widget,
+				struct tablet_tool *tool,
+				void *data);
+	
+	void panel_launcher_tablet_tool_button_handler(struct widget *widget,
+				struct tablet_tool *tool,
+				uint32_t button,
+				uint32_t state_w,
+				void *data);
+	*/
 };
 
-struct panel_clock {
-	struct widget *widget;
-	struct panel *panel;
-	struct toytimer timer;
-	char *format_string;
-	time_t refresh_timer;
-};
-
-
-
-
-struct unlock_dialog {
-	struct window *window;
-	struct widget *widget;
-	struct widget *button;
-	int button_focused;
-	int closing;
-	struct desktop *desktop;
-};
-
-//Dock
-struct dock {
-	struct surface base;
-
-    struct output *owner;
-
-    struct wl_list launcher_list;
-    
-	struct window *window;
-	struct widget *widget;
-
-	//Display
-	enum weston_desktop_shell_dock_position dock_position;
-	int painted;
-	uint32_t color;
-};
-
-//Dock launcher
-struct dock_launcher {
-	struct widget *widget;
-	struct dock *dock;
-	cairo_surface_t *icon;
-	int focused, pressed;
-	char *path;
-	char *displayname;
-	struct wl_list link;
-	struct custom_env env;
-	char * const *argp;
-	char * const *envp;
-};
-
-static void
-panel_add_launchers(struct panel *panel, struct desktop *desktop);
-
-static void
-sigchild_handler(int s)
-{
-	int status;
-	pid_t pid;
-
-	while (pid = waitpid(-1, &status, WNOHANG), pid > 0)
-		fprintf(stderr, "child %d exited\n", pid);
-}
-
-static int
-is_desktop_painted(struct desktop *desktop)
-{
-	struct output *output;
-
-	wl_list_for_each(output, &desktop->outputs, link) {
-		if (output->panel && !output->panel->painted)
-			return 0;
-		if (output->background && !output->background->painted)
-			return 0;
-		if (output->dock && !output->dock->painted)
-    		return 0;
-	}
-
-	return 1;
-}
-
-static void
-check_desktop_ready(struct window *window)
-{
-	struct display *display;
-	struct desktop *desktop;
-
-	display = window_get_display(window);
-	desktop = display_get_user_data(display);
-
-	if (!desktop->painted && is_desktop_painted(desktop)) {
-		desktop->painted = 1;
-
-		weston_desktop_shell_desktop_ready(desktop->shell);
-	}
-}
-
-static void
-panel_launcher_activate(struct panel_launcher *widget)
+void
+PanelLauncher::panel_launcher_activate()
 {
 	pid_t pid;
 
@@ -284,17 +772,36 @@ panel_launcher_activate(struct panel_launcher *widget)
 	if (setsid() == -1)
 		exit(EXIT_FAILURE);
 
-	if (execve(widget->argp[0], widget->argp, widget->envp) < 0) {
-		fprintf(stderr, "execl '%s' failed: %s\n", widget->argp[0],
+	if (execve(this->argp[0], this->argp, this->envp) < 0) {
+		fprintf(stderr, "execl '%s' failed: %s\n", this->argp[0],
 			strerror(errno));
 		exit(1);
 	}
 }
 
+/*void
+panel_destroy_launcher()*/
+PanelLauncher::~PanelLauncher()
+{
+	custom_env_fini(&launcher->env);
+
+	free(this->path);
+	free(this->displayname);
+
+	cairo_surface_destroy(this->icon);
+
+	widget_destroy(this->widget);
+	wl_list_remove(&this->link);
+
+	free(this);
+}
+
+/*void
+PanelLauncher::panel_launcher_redraw_handler(struct widget *widget, void *data)*/
 static void
 panel_launcher_redraw_handler(struct widget *widget, void *data)
 {
-	struct panel_launcher *launcher = data;
+	PanelLauncher *launcher = data;
 	struct rectangle allocation;
 	cairo_t *cr;
 
@@ -327,15 +834,463 @@ panel_launcher_redraw_handler(struct widget *widget, void *data)
 	cairo_destroy(cr);
 }
 
+/*int
+PanelLauncher::panel_launcher_motion_handler(struct widget *widget, struct input *input,
+			      uint32_t time, float x, float y, void *data)*/
 static int
 panel_launcher_motion_handler(struct widget *widget, struct input *input,
 			      uint32_t time, float x, float y, void *data)
 {
-	struct panel_launcher *launcher = data;
+	PanelLauncher *launcher = data;
 
 	widget_set_tooltip(widget, launcher->displayname, x, y);
 
 	return CURSOR_LEFT_PTR;
+}
+
+/*int
+PanelLauncher::panel_launcher_enter_handler(struct widget *widget, struct input *input,
+			     float x, float y, void *data)*/
+static int
+PanelLauncher::panel_launcher_enter_handler(struct widget *widget, struct input *input,
+			     float x, float y, void *data)
+{
+	PanelLauncher *launcher = data;
+
+	launcher->focused = 1;
+	widget_schedule_redraw(widget);
+
+	return CURSOR_LEFT_PTR;
+}
+
+/*void
+PanelLauncher::panel_launcher_leave_handler(struct widget *widget,
+			     struct input *input, void *data)*/
+static void
+panel_launcher_leave_handler(struct widget *widget,
+			     struct input *input, void *data)
+{
+	PanelLauncher *launcher = data;
+
+	launcher->focused = 0;
+	widget_destroy_tooltip(widget);
+	widget_schedule_redraw(widget);
+}
+
+/*void
+PanelLauncher::panel_launcher_button_handler(struct widget *widget,
+			      struct input *input, uint32_t time,
+			      uint32_t button,
+			      enum wl_pointer_button_state state, void *data)*/
+static void
+panel_launcher_button_handler(struct widget *widget,
+			      struct input *input, uint32_t time,
+			      uint32_t button,
+			      enum wl_pointer_button_state state, void *data)
+{
+	PanelLauncher *launcher;
+
+	launcher = widget_get_user_data(widget);
+	widget_schedule_redraw(widget);
+	if (state == WL_POINTER_BUTTON_STATE_RELEASED)
+		panel_launcher_activate(launcher);
+
+}
+
+/*void
+PanelLauncher::panel_launcher_touch_down_handler(struct widget *widget, struct input *input,
+				  uint32_t serial, uint32_t time, int32_t id,
+				  				  float x, float y, void *data)*/
+static void
+panel_launcher_touch_down_handler(struct widget *widget, struct input *input,
+				  uint32_t serial, uint32_t time, int32_t id,
+				  				  float x, float y, void *data)
+{
+	PanelLauncher *launcher;
+
+	launcher = widget_get_user_data(widget);
+	launcher->focused = 1;
+	widget_schedule_redraw(widget);
+}
+
+static void
+panel_launcher_touch_up_handler(struct widget *widget, struct input *input,
+				uint32_t serial, uint32_t time, int32_t id,
+				void *data)
+{
+	PanelLauncher *launcher;
+
+	launcher = widget_get_user_data(widget);
+	launcher->focused = 0;
+	widget_schedule_redraw(widget);
+	panel_launcher_activate(launcher);
+}
+
+static void
+panel_launcher_tablet_tool_proximity_in_handler(struct widget *widget,
+						struct tablet_tool *tool,
+						struct tablet *tablet, void *data)
+{
+	PanelLauncher *launcher;
+
+	launcher = widget_get_user_data(widget);
+	launcher->focused = 1;
+	widget_schedule_redraw(widget);
+}
+
+static void
+panel_launcher_tablet_tool_proximity_out_handler(struct widget *widget,
+						 struct tablet_tool *tool, void *data)
+{
+	PanelLauncher *launcher;
+
+	launcher = widget_get_user_data(widget);
+	launcher->focused = 0;
+	widget_schedule_redraw(widget);
+}
+
+/*void
+PanelLauncher::panel_launcher_tablet_tool_up_handler(struct widget *widget,
+				      struct tablet_tool *tool,
+				      void *data)*/
+static void
+panel_launcher_tablet_tool_up_handler(struct widget *widget,
+				      struct tablet_tool *tool,
+				      void *data)
+{
+	PanelLauncher *launcher;
+
+	launcher = widget_get_user_data(widget);
+	panel_launcher_activate(launcher);
+}
+
+/*
+void
+PanelLauncher::panel_launcher_tablet_tool_button_handler(struct widget *widget,
+					  struct tablet_tool *tool,
+					  uint32_t button,
+					  uint32_t state_w,
+					  void *data)*/
+static void
+panel_launcher_tablet_tool_button_handler(struct widget *widget,
+					  struct tablet_tool *tool,
+					  uint32_t button,
+					  uint32_t state_w,
+					  void *data)
+{
+	PanelLauncher *launcher;
+	enum zwp_tablet_tool_v2_button_state state = state_w;
+
+	launcher = widget_get_user_data(widget);
+
+	if (state == ZWP_TABLET_TOOL_V2_BUTTON_STATE_RELEASED)
+		panel_launcher_activate(launcher);
+}
+
+/*
+struct panel_launcher {
+	struct widget *widget;
+	struct panel *panel;
+	cairo_surface_t *icon;
+	int focused, pressed;
+	char *path;
+	char *displayname;
+	struct wl_list link;
+	struct custom_env env;
+	char * const *argp;
+	char * const *envp;
+};*/
+
+class PanelClock {
+	struct widget *widget;
+	Panel *panel;
+	struct toytimer timer;
+	char *format_string;
+	time_t refresh_timer;
+
+	~PanelClock();
+
+	int clock_timer_reset();
+};
+
+int
+PanelClock::clock_timer_reset()
+{
+	struct itimerspec its;
+	struct timespec ts;
+	struct tm *tm;
+
+	clock_gettime(CLOCK_REALTIME, &ts);
+	tm = localtime(&ts.tv_sec);
+
+	its.it_interval.tv_sec = 0;
+	its.it_interval.tv_nsec = 0;
+	its.it_value.tv_sec = this->refresh_timer - tm->tm_sec % this->refresh_timer;
+	its.it_value.tv_nsec = 10000000; /* 10 ms late to ensure the clock digit has actually changed */
+	timespec_add_nsec(&its.it_value, &its.it_value, -ts.tv_nsec);
+
+	toytimer_arm(&this->timer, &its);
+	return 0;
+}
+
+/*static void
+panel_destroy_clock(struct panel_clock *clock)*/
+PanelClock::~PanelClock()
+{
+	widget_destroy(this->widget);
+	toytimer_fini(&this->timer);
+	//free(clock);
+}
+
+/*
+struct panel_clock {
+	struct widget *widget;
+	Panel *panel;
+	struct toytimer timer;
+	char *format_string;
+	time_t refresh_timer;
+};*/
+
+class UnlockDialog {
+public:
+	struct window *window;
+	struct widget *widget;
+	struct widget *button;
+	int button_focused;
+	int closing;
+	Desktop *desktop;
+
+	UnlockDialog(Desktop *desktop);
+	~UnlockDialog();
+};
+
+/*
+static struct unlock_dialog *
+unlock_dialog_create(struct desktop *desktop)*/
+//Todo: fix the constructor
+UnlockDialog::UnlockDialog(Desktop *desktop)
+{
+	struct display *display = desktop->display;
+	struct unlock_dialog *dialog;
+	struct wl_surface *surface;
+
+	dialog = xzalloc(sizeof *dialog);
+
+	dialog->window = window_create_custom(display);
+	dialog->widget = window_frame_create(dialog->window, dialog);
+	window_set_title(dialog->window, "Unlock your desktop");
+
+	window_set_user_data(dialog->window, dialog);
+	window_set_keyboard_focus_handler(dialog->window,
+					  unlock_dialog_keyboard_focus_handler);
+	dialog->button = widget_add_widget(dialog->widget, dialog);
+	widget_set_redraw_handler(dialog->widget,
+				  unlock_dialog_redraw_handler);
+	widget_set_enter_handler(dialog->button,
+				 unlock_dialog_widget_enter_handler);
+	widget_set_leave_handler(dialog->button,
+				 unlock_dialog_widget_leave_handler);
+	widget_set_button_handler(dialog->button,
+				  unlock_dialog_button_handler);
+	widget_set_touch_down_handler(dialog->button,
+				      unlock_dialog_touch_down_handler);
+	widget_set_touch_up_handler(dialog->button,
+				      unlock_dialog_touch_up_handler);
+
+	surface = window_get_wl_surface(dialog->window);
+	weston_desktop_shell_set_lock_surface(desktop->shell, surface);
+
+	window_schedule_resize(dialog->window, 260, 230);
+
+	return dialog;
+}
+
+/*
+static void
+unlock_dialog_destroy(struct unlock_dialog *dialog)*/
+UnlockDialog::~UnlockDialog()
+{
+	window_destroy(this->window);
+	//free(dialog);
+}
+
+static void
+unlock_dialog_finish(struct task *task, uint32_t events)
+{
+	struct desktop *desktop =
+		container_of(task, struct desktop, unlock_task);
+
+	weston_desktop_shell_unlock(desktop->shell);
+	unlock_dialog_destroy(desktop->unlock_dialog);
+	desktop->unlock_dialog = NULL;
+}
+
+/*
+struct unlock_dialog {
+	struct window *window;
+	struct widget *widget;
+	struct widget *button;
+	int button_focused;
+	int closing;
+	Desktop *desktop;
+};*/
+
+//Dock
+class Dock {
+public:
+	struct surface base;
+
+    Output *owner;
+
+    struct wl_list launcher_list;
+    
+	struct window *window;
+	struct widget *widget;
+
+	//Display
+	enum weston_desktop_shell_dock_position dock_position;
+	int painted;
+	uint32_t color;
+
+	Dock(Desktop *desktop, Output *output);
+	~Dock();
+};
+
+//Create the dock
+/*static struct dock*
+dock_create(struct desktop* desktop, struct output* output)*/
+//Todo: fix the constructor
+Dock::Dock(Desktop *desktop, Output *output)
+{
+	struct dock *dock;
+	struct weston_config_section *s;
+
+	dock = xzalloc(sizeof *dock);
+	dock->owner = output;
+
+	//configure
+	dock->base.configure = dock_configure;
+	dock->window = window_create_custom(desktop->display);
+	dock->widget = window_add_widget(dock->window, dock);
+
+	//wl_list_init
+	wl_list_init(&dock->launcher_list);
+
+	window_set_title(dock->window, "dock");
+	window_set_user_data(dock->window, dock);
+
+	//Redraw and resize handler
+	widget_set_redraw_handler(dock->widget, dock_redraw_handler);
+	widget_set_resize_handler(dock->widget, dock_resize_handler);
+
+	//Dock position
+	dock->dock_position = desktop->dock_position;
+
+	//Read the configuration file
+	s = weston_config_get_section(desktop->config, "shell", NULL, NULL);
+	//Get color, currently dock-color = panel-color
+	weston_config_section_get_color(s, "panel-color", &dock->color, 0xaa000000);
+	
+	//Todo: Add_launcher
+
+	return dock;
+}
+
+//Destroy the dock
+/*static void
+dock_destroy(struct dock *dock)*/
+Dock::~Dock()
+{
+	struct dock_launcher *tmp;
+	struct dock_launcher *launcher;
+
+	wl_list_for_each_safe(launcher, tmp, &this->launcher_list, link)
+		dock_destroy_launcher(launcher);
+
+	widget_destroy(this->widget);
+	window_destroy(this->window);
+
+	//free(dock);
+}
+/*
+struct dock {
+	struct surface base;
+
+    struct output *owner;
+
+    struct wl_list launcher_list;
+    
+	struct window *window;
+	struct widget *widget;
+
+	//Display
+	enum weston_desktop_shell_dock_position dock_position;
+	int painted;
+	uint32_t color;
+};*/
+
+//Dock launcher
+class DockLauncher {
+public:
+	struct widget *widget;
+	Dock *dock;
+	cairo_surface_t *icon;
+	int focused, pressed;
+	char *path;
+	char *displayname;
+	struct wl_list link;
+	struct custom_env env;
+	char * const *argp;
+	char * const *envp;
+
+	~DockLauncher();
+};
+
+/*
+static void
+dock_destroy_launcher(struct dock_launcher *launcher)*/
+DockLauncher::~DockLauncher()
+{
+	custom_env_fini(&this->env);
+
+	free(this->path);
+	free(this->displayname);
+
+	cairo_surface_destroy(this->icon);
+
+	widget_destroy(this->widget);
+	wl_list_remove(&this->link);
+
+	//free(launcher);
+}
+
+/*
+struct dock_launcher {
+	struct widget *widget;
+	struct dock *dock;
+	cairo_surface_t *icon;
+	int focused, pressed;
+	char *path;
+	char *displayname;
+	struct wl_list link;
+	struct custom_env env;
+	char * const *argp;
+	char * const *envp;
+};*/
+
+/*
+static void
+panel_add_launchers(struct panel *panel, struct desktop *desktop);
+*/
+
+static void
+sigchild_handler(int s)
+{
+	int status;
+	pid_t pid;
+
+	while (pid = waitpid(-1, &status, WNOHANG), pid > 0)
+		fprintf(stderr, "child %d exited\n", pid);
 }
 
 static void
@@ -367,120 +1322,7 @@ panel_redraw_handler(struct widget *widget, void *data)
 	check_desktop_ready(panel->window);
 }
 
-static int
-panel_launcher_enter_handler(struct widget *widget, struct input *input,
-			     float x, float y, void *data)
-{
-	struct panel_launcher *launcher = data;
-
-	launcher->focused = 1;
-	widget_schedule_redraw(widget);
-
-	return CURSOR_LEFT_PTR;
-}
-
-static void
-panel_launcher_leave_handler(struct widget *widget,
-			     struct input *input, void *data)
-{
-	struct panel_launcher *launcher = data;
-
-	launcher->focused = 0;
-	widget_destroy_tooltip(widget);
-	widget_schedule_redraw(widget);
-}
-
-static void
-panel_launcher_button_handler(struct widget *widget,
-			      struct input *input, uint32_t time,
-			      uint32_t button,
-			      enum wl_pointer_button_state state, void *data)
-{
-	struct panel_launcher *launcher;
-
-	launcher = widget_get_user_data(widget);
-	widget_schedule_redraw(widget);
-	if (state == WL_POINTER_BUTTON_STATE_RELEASED)
-		panel_launcher_activate(launcher);
-
-}
-
-static void
-panel_launcher_touch_down_handler(struct widget *widget, struct input *input,
-				  uint32_t serial, uint32_t time, int32_t id,
-				  float x, float y, void *data)
-{
-	struct panel_launcher *launcher;
-
-	launcher = widget_get_user_data(widget);
-	launcher->focused = 1;
-	widget_schedule_redraw(widget);
-}
-
-static void
-panel_launcher_touch_up_handler(struct widget *widget, struct input *input,
-				uint32_t serial, uint32_t time, int32_t id,
-				void *data)
-{
-	struct panel_launcher *launcher;
-
-	launcher = widget_get_user_data(widget);
-	launcher->focused = 0;
-	widget_schedule_redraw(widget);
-	panel_launcher_activate(launcher);
-}
-
-static void
-panel_launcher_tablet_tool_proximity_in_handler(struct widget *widget,
-						struct tablet_tool *tool,
-						struct tablet *tablet, void *data)
-{
-	struct panel_launcher *launcher;
-
-	launcher = widget_get_user_data(widget);
-	launcher->focused = 1;
-	widget_schedule_redraw(widget);
-}
-
-static void
-panel_launcher_tablet_tool_proximity_out_handler(struct widget *widget,
-						 struct tablet_tool *tool, void *data)
-{
-	struct panel_launcher *launcher;
-
-	launcher = widget_get_user_data(widget);
-	launcher->focused = 0;
-	widget_schedule_redraw(widget);
-}
-
-static void
-panel_launcher_tablet_tool_up_handler(struct widget *widget,
-				      struct tablet_tool *tool,
-				      void *data)
-{
-	struct panel_launcher *launcher;
-
-	launcher = widget_get_user_data(widget);
-	panel_launcher_activate(launcher);
-}
-
-static void
-panel_launcher_tablet_tool_button_handler(struct widget *widget,
-					  struct tablet_tool *tool,
-					  uint32_t button,
-					  uint32_t state_w,
-					  void *data)
-{
-	struct panel_launcher *launcher;
-	enum zwp_tablet_tool_v2_button_state state = state_w;
-
-	launcher = widget_get_user_data(widget);
-
-	if (state == ZWP_TABLET_TOOL_V2_BUTTON_STATE_RELEASED)
-		panel_launcher_activate(launcher);
-}
-
-static int clock_timer_reset(struct panel_clock *clock);
+//static int clock_timer_reset(struct panel_clock *clock);
 
 static void
 clock_func(struct toytimer *tt)
@@ -530,71 +1372,9 @@ panel_clock_redraw_handler(struct widget *widget, void *data)
 	cairo_destroy(cr);
 }
 
-static int
-clock_timer_reset(struct panel_clock *clock)
-{
-	struct itimerspec its;
-	struct timespec ts;
-	struct tm *tm;
 
-	clock_gettime(CLOCK_REALTIME, &ts);
-	tm = localtime(&ts.tv_sec);
 
-	its.it_interval.tv_sec = 0;
-	its.it_interval.tv_nsec = 0;
-	its.it_value.tv_sec = clock->refresh_timer - tm->tm_sec % clock->refresh_timer;
-	its.it_value.tv_nsec = 10000000; /* 10 ms late to ensure the clock digit has actually changed */
-	timespec_add_nsec(&its.it_value, &its.it_value, -ts.tv_nsec);
 
-	toytimer_arm(&clock->timer, &its);
-	return 0;
-}
-
-static void
-panel_destroy_clock(struct panel_clock *clock)
-{
-	widget_destroy(clock->widget);
-	toytimer_fini(&clock->timer);
-	free(clock);
-}
-
-static void
-panel_add_clock(struct panel *panel)
-{
-	struct panel_clock *clock;
-
-	clock = xzalloc(sizeof *clock);
-	clock->panel = panel;
-	panel->clock = clock;
-
-	switch (panel->clock_format) {
-	case CLOCK_FORMAT_MINUTES:
-		clock->format_string = "%a %b %d, %I:%M %p";
-		clock->refresh_timer = 60;
-		break;
-	case CLOCK_FORMAT_SECONDS:
-		clock->format_string = "%a %b %d, %I:%M:%S %p";
-		clock->refresh_timer = 1;
-		break;
-	case CLOCK_FORMAT_MINUTES_24H:
-		clock->format_string = "%a %b %d, %H:%M";
-		clock->refresh_timer = 60;
-		break;
-	case CLOCK_FORMAT_SECONDS_24H:
-		clock->format_string = "%a %b %d, %H:%M:%S";
-		clock->refresh_timer = 1;
-		break;
-	case CLOCK_FORMAT_NONE:
-		assert(!"not reached");
-	}
-
-	toytimer_init(&clock->timer, CLOCK_MONOTONIC,
-		      window_get_display(panel->window), clock_func);
-	clock_timer_reset(clock);
-
-	clock->widget = widget_add_widget(panel->widget, clock);
-	widget_set_redraw_handler(clock->widget, panel_clock_redraw_handler);
-}
 
 static void
 panel_resize_handler(struct widget *widget,
@@ -635,8 +1415,9 @@ panel_resize_handler(struct widget *widget,
 				      x, y, w + 1, h + 1);
 }
 
+/*
 static void
-panel_destroy(struct panel *panel);
+panel_destroy(struct panel *panel);*/
 
 static void
 panel_configure(void *data,
@@ -682,82 +1463,6 @@ panel_configure(void *data,
 	window_schedule_resize(panel->window, width, height);
 }
 
-static void
-panel_destroy_launcher(struct panel_launcher *launcher)
-{
-	custom_env_fini(&launcher->env);
-
-	free(launcher->path);
-	free(launcher->displayname);
-
-	cairo_surface_destroy(launcher->icon);
-
-	widget_destroy(launcher->widget);
-	wl_list_remove(&launcher->link);
-
-	free(launcher);
-}
-
-static void
-panel_destroy(struct panel *panel)
-{
-	struct panel_launcher *tmp;
-	struct panel_launcher *launcher;
-
-	if (panel->clock)
-		panel_destroy_clock(panel->clock);
-
-	wl_list_for_each_safe(launcher, tmp, &panel->launcher_list, link)
-		panel_destroy_launcher(launcher);
-
-	widget_destroy(panel->widget);
-	window_destroy(panel->window);
-
-	free(panel);
-}
-
-static struct panel *
-panel_create(struct desktop *desktop, struct output *output)
-{
-	struct panel *panel;
-	struct weston_config_section *s;
-
-	panel = xzalloc(sizeof *panel);
-
-	panel->owner = output;
-	//Set base configure function for panel
-	panel->base.configure = panel_configure;
-	panel->window = window_create_custom(desktop->display);
-	panel->widget = window_add_widget(panel->window, panel);
-	wl_list_init(&panel->launcher_list);
-
-	window_set_title(panel->window, "panel");
-	window_set_user_data(panel->window, panel);
-
-	//Set redraw and resize handlers
-	widget_set_redraw_handler(panel->widget, panel_redraw_handler);
-	widget_set_resize_handler(panel->widget, panel_resize_handler);
-
-	//Panel position
-	panel->panel_position = desktop->panel_position;
-
-	//Clock
-	panel->clock_format = desktop->clock_format;
-	if (panel->clock_format != CLOCK_FORMAT_NONE)
-		panel_add_clock(panel);
-
-	//Read the configuration file
-	s = weston_config_get_section(desktop->config, "shell", NULL, NULL);
-	weston_config_section_get_color(s, "panel-color",
-					&panel->color, 0xaa000000);
-
-	panel_add_launchers(panel, desktop);
-
-	return panel;
-}
-
-
-
 static cairo_surface_t *
 load_icon_or_fallback(const char *icon)
 {
@@ -795,47 +1500,7 @@ load_icon_or_fallback(const char *icon)
 	return surface;
 }
 
-static void
-panel_add_launcher(struct panel *panel, const char *icon, const char *path, const char *displayname)
-{
-	struct panel_launcher *launcher;
 
-	launcher = xzalloc(sizeof *launcher);
-	launcher->icon = load_icon_or_fallback(icon);
-	launcher->path = xstrdup(path);
-	launcher->displayname = xstrdup(displayname);
-
-	custom_env_init_from_environ(&launcher->env);
-	custom_env_add_from_exec_string(&launcher->env, launcher->path);
-	launcher->envp = custom_env_get_envp(&launcher->env);
-	launcher->argp = custom_env_get_argp(&launcher->env);
-
-	launcher->panel = panel;
-	wl_list_insert(panel->launcher_list.prev, &launcher->link);
-
-	launcher->widget = widget_add_widget(panel->widget, launcher);
-	widget_set_enter_handler(launcher->widget,
-				 panel_launcher_enter_handler);
-	widget_set_leave_handler(launcher->widget,
-				   panel_launcher_leave_handler);
-	widget_set_button_handler(launcher->widget,
-				    panel_launcher_button_handler);
-	widget_set_touch_down_handler(launcher->widget,
-				      panel_launcher_touch_down_handler);
-	widget_set_touch_up_handler(launcher->widget,
-				    panel_launcher_touch_up_handler);
-	widget_set_tablet_tool_up_handler(launcher->widget,
-				panel_launcher_tablet_tool_up_handler);
-	widget_set_tablet_tool_proximity_handlers(launcher->widget,
-				panel_launcher_tablet_tool_proximity_in_handler,
-				panel_launcher_tablet_tool_proximity_out_handler);
-	widget_set_tablet_tool_button_handler(launcher->widget,
-				panel_launcher_tablet_tool_button_handler);
-	widget_set_redraw_handler(launcher->widget,
-				  panel_launcher_redraw_handler);
-	widget_set_motion_handler(launcher->widget,
-				  panel_launcher_motion_handler);
-}
 
 
 
@@ -936,8 +1601,9 @@ background_draw(struct widget *widget, void *data)
 	check_desktop_ready(background->window);
 }
 
+/*
 static void
-background_destroy(struct background *background);
+background_destroy(struct background *background);*/
 
 static void
 background_configure(void *data,
@@ -1086,61 +1752,6 @@ unlock_dialog_widget_leave_handler(struct widget *widget,
 	widget_schedule_redraw(widget);
 }
 
-static struct unlock_dialog *
-unlock_dialog_create(struct desktop *desktop)
-{
-	struct display *display = desktop->display;
-	struct unlock_dialog *dialog;
-	struct wl_surface *surface;
-
-	dialog = xzalloc(sizeof *dialog);
-
-	dialog->window = window_create_custom(display);
-	dialog->widget = window_frame_create(dialog->window, dialog);
-	window_set_title(dialog->window, "Unlock your desktop");
-
-	window_set_user_data(dialog->window, dialog);
-	window_set_keyboard_focus_handler(dialog->window,
-					  unlock_dialog_keyboard_focus_handler);
-	dialog->button = widget_add_widget(dialog->widget, dialog);
-	widget_set_redraw_handler(dialog->widget,
-				  unlock_dialog_redraw_handler);
-	widget_set_enter_handler(dialog->button,
-				 unlock_dialog_widget_enter_handler);
-	widget_set_leave_handler(dialog->button,
-				 unlock_dialog_widget_leave_handler);
-	widget_set_button_handler(dialog->button,
-				  unlock_dialog_button_handler);
-	widget_set_touch_down_handler(dialog->button,
-				      unlock_dialog_touch_down_handler);
-	widget_set_touch_up_handler(dialog->button,
-				      unlock_dialog_touch_up_handler);
-
-	surface = window_get_wl_surface(dialog->window);
-	weston_desktop_shell_set_lock_surface(desktop->shell, surface);
-
-	window_schedule_resize(dialog->window, 260, 230);
-
-	return dialog;
-}
-
-static void
-unlock_dialog_destroy(struct unlock_dialog *dialog)
-{
-	window_destroy(dialog->window);
-	free(dialog);
-}
-
-static void
-unlock_dialog_finish(struct task *task, uint32_t events)
-{
-	struct desktop *desktop =
-		container_of(task, struct desktop, unlock_task);
-
-	weston_desktop_shell_unlock(desktop->shell);
-	unlock_dialog_destroy(desktop->unlock_dialog);
-	desktop->unlock_dialog = NULL;
-}
 
 static void
 desktop_shell_configure(void *data,
@@ -1225,15 +1836,7 @@ static const struct weston_desktop_shell_listener listener = {
 	desktop_shell_grab_cursor
 };
 
-static void
-background_destroy(struct background *background)
-{
-	widget_destroy(background->widget);
-	window_destroy(background->window);
 
-	free(background->image);
-	free(background);
-}
 
 static struct background *
 background_create(struct desktop *desktop, struct output *output)
@@ -1292,51 +1895,9 @@ grab_surface_enter_handler(struct widget *widget, struct input *input,
 	return desktop->grab_cursor;
 }
 
+/*
 static void
-grab_surface_destroy(struct desktop *desktop)
-{
-	widget_destroy(desktop->grab_widget);
-	window_destroy(desktop->grab_window);
-}
-
-static void
-grab_surface_create(struct desktop *desktop)
-{
-	struct wl_surface *s;
-
-	desktop->grab_window = window_create_custom(desktop->display);
-	window_set_user_data(desktop->grab_window, desktop);
-
-	s = window_get_wl_surface(desktop->grab_window);
-	weston_desktop_shell_set_grab_surface(desktop->shell, s);
-
-	desktop->grab_widget =
-		window_add_widget(desktop->grab_window, desktop);
-	/* We set the allocation to 1x1 at 0,0 so the fake enter event
-	 * at 0,0 will go to this widget. */
-	widget_set_allocation(desktop->grab_widget, 0, 0, 1, 1);
-
-	widget_set_enter_handler(desktop->grab_widget,
-				 grab_surface_enter_handler);
-}
-
-static void
-dock_destroy(struct dock* dock);
-
-static void
-output_destroy(struct output *output)
-{
-	if (output->background)
-		background_destroy(output->background);
-	if (output->panel)
-		panel_destroy(output->panel);
-	if (output->dock)
-		dock_destroy(output->dock);
-	wl_output_destroy(output->output);
-	wl_list_remove(&output->link);
-
-	free(output);
-}
+dock_destroy(struct dock* dock);*/
 
 static void
 desktop_destroy_outputs(struct desktop *desktop)
@@ -1406,116 +1967,9 @@ static const struct wl_output_listener output_listener = {
 	output_handle_scale
 };
 
+/*
 static struct dock*
-dock_create(struct desktop* desktop, struct output* output);
-
-//Init the display screen
-static void
-output_init(struct output *output, struct desktop *desktop)
-{
-	struct wl_surface *surface;
-
-	if (desktop->want_panel) {
-		output->panel = panel_create(desktop, output);
-		surface = window_get_wl_surface(output->panel->window);
-		weston_desktop_shell_set_panel(desktop->shell,
-					       output->output, surface);
-		
-		//Init the dock in the output layer
-		output->dock = dock_create(desktop, output);
-		surface = window_get_wl_surface(output->dock->window);
-		weston_desktop_shell_set_dock(desktop->shell, output->output, surface);
-	}
-
-	output->background = background_create(desktop, output);
-	surface = window_get_wl_surface(output->background->window);
-	weston_desktop_shell_set_background(desktop->shell,
-					    output->output, surface);
-}
-
-static void
-create_output(struct desktop *desktop, uint32_t id)
-{
-	struct output *output;
-
-	output = zalloc(sizeof *output);
-	if (!output)
-		return;
-
-	output->output =
-		display_bind(desktop->display, id, &wl_output_interface, 2);
-	output->server_output_id = id;
-
-	wl_output_add_listener(output->output, &output_listener, output);
-
-	wl_list_insert(&desktop->outputs, &output->link);
-
-	/* On start up we may process an output global before the shell global
-	 * in which case we can't create the panel and background just yet */
-	if (desktop->shell)
-		output_init(output, desktop);
-}
-
-static void
-output_remove(struct desktop *desktop, struct output *output)
-{
-	struct output *cur;
-	struct output *rep = NULL;
-
-	if (!output->background) {
-		output_destroy(output);
-		return;
-	}
-
-	/* Find a wl_output that is a clone of the removed wl_output.
-	 * We don't want to leave the clone without a background or panel. */
-	wl_list_for_each(cur, &desktop->outputs, link) {
-		if (cur == output)
-			continue;
-
-		/* XXX: Assumes size matches. */
-		if (cur->x == output->x && cur->y == output->y) {
-			rep = cur;
-			break;
-		}
-	}
-
-	if (rep) {
-		/* If found and it does not already have a background or panel,
-		 * hand over the background and panel so they don't get
-		 * destroyed.
-		 *
-		 * We never create multiple backgrounds or panels for clones,
-		 * but if the compositor moves outputs, a pair of wl_outputs
-		 * might become "clones". This may happen temporarily when
-		 * an output is about to be removed and the rest are reflowed.
-		 * In this case it is correct to let the background/panel be
-		 * destroyed.
-		 */
-
-		if (!rep->background) {
-			rep->background = output->background;
-			output->background = NULL;
-			rep->background->owner = rep;
-		}
-
-		if (!rep->panel) {
-			rep->panel = output->panel;
-			output->panel = NULL;
-			if (rep->panel)
-				rep->panel->owner = rep;
-		}
-
-		if(!rep->dock) {
-			rep->dock = output->dock;
-			output->dock = NULL;
-			if (rep->dock)
-				rep->dock->owner = rep;
-		}
-	}
-
-	output_destroy(output);
-}
+dock_create(struct desktop* desktop, struct output* output);*/
 
 static void
 global_handler(struct display *display, uint32_t id,
@@ -1553,128 +2007,13 @@ global_handler_remove(struct display *display, uint32_t id,
 	}
 }
 
-static void
-panel_add_launchers(struct panel *panel, struct desktop *desktop)
-{
-	struct weston_config_section *s;
-	char *icon, *path, *displayname;
-	const char *name;
-	int count;
 
-	count = 0;
-	s = NULL;
-	//Iterate the configuration file weston.ini, find installed applications mentioned in the file, and add them to the panel
-	while (weston_config_next_section(desktop->config, &s, &name)) {
-		if (strcmp(name, "launcher") != 0)
-			continue;
 
-		weston_config_section_get_string(s, "icon", &icon, NULL);
-		weston_config_section_get_string(s, "path", &path, NULL);
-		weston_config_section_get_string(s, "displayname", &displayname, NULL);
-		if (displayname == NULL)
-			displayname = xstrdup(basename(path));
 
-		if (icon != NULL && path != NULL) {
-			panel_add_launcher(panel, icon, path, displayname);
-			count++;
-		} else {
-			fprintf(stderr, "invalid launcher section\n");
-		}
 
-		free(icon);
-		free(path);
-		free(displayname);
-	}
 
-	if (count == 0) {
-		char *name = file_name_with_datadir("terminal.png");
 
-		/* add default launcher */
-		panel_add_launcher(panel,
-				   name,
-				   BINDIR "/weston-terminal",
-				   "Terminal");
-		free(name);
-	}
-}
 
-static void
-parse_panel_position(struct desktop *desktop, struct weston_config_section *s)
-{
-	char *position;
-
-	desktop->want_panel = 1;
-
-	weston_config_section_get_string(s, "panel-position", &position, "top");
-	if (strcmp(position, "top") == 0) {
-		desktop->panel_position = WESTON_DESKTOP_SHELL_PANEL_POSITION_TOP;
-	} else if (strcmp(position, "bottom") == 0) {
-		desktop->panel_position = WESTON_DESKTOP_SHELL_PANEL_POSITION_BOTTOM;
-	} else if (strcmp(position, "left") == 0) {
-		desktop->panel_position = WESTON_DESKTOP_SHELL_PANEL_POSITION_LEFT;
-	} else if (strcmp(position, "right") == 0) {
-		desktop->panel_position = WESTON_DESKTOP_SHELL_PANEL_POSITION_RIGHT;
-	} else {
-		/* 'none' is valid here */
-		if (strcmp(position, "none") != 0)
-			fprintf(stderr, "Wrong panel position: %s\n", position);
-		desktop->want_panel = 0;
-	}
-	free(position);
-}
-
-static void
-parse_clock_format(struct desktop *desktop, struct weston_config_section *s)
-{
-	char *clock_format;
-
-	weston_config_section_get_string(s, "clock-format", &clock_format, "");
-	if (strcmp(clock_format, "minutes") == 0)
-		desktop->clock_format = CLOCK_FORMAT_MINUTES;
-	else if (strcmp(clock_format, "seconds") == 0)
-		desktop->clock_format = CLOCK_FORMAT_SECONDS;
-	else if (strcmp(clock_format, "minutes-24h") == 0)
-		desktop->clock_format = CLOCK_FORMAT_MINUTES_24H;
-	else if (strcmp(clock_format, "seconds-24h") == 0)
-		desktop->clock_format = CLOCK_FORMAT_SECONDS_24H;
-	else if (strcmp(clock_format, "none") == 0)
-		desktop->clock_format = CLOCK_FORMAT_NONE;
-	else
-		desktop->clock_format = DEFAULT_CLOCK_FORMAT;
-	free(clock_format);
-}
-
-static void
-dock_destroy_launcher(struct dock_launcher *launcher)
-{
-	custom_env_fini(&launcher->env);
-
-	free(launcher->path);
-	free(launcher->displayname);
-
-	cairo_surface_destroy(launcher->icon);
-
-	widget_destroy(launcher->widget);
-	wl_list_remove(&launcher->link);
-
-	free(launcher);
-}
-
-//Destroy the dock
-static void
-dock_destroy(struct dock *dock)
-{
-	struct dock_launcher *tmp;
-	struct dock_launcher *launcher;
-
-	wl_list_for_each_safe(launcher, tmp, &dock->launcher_list, link)
-		dock_destroy_launcher(launcher);
-
-	widget_destroy(dock->widget);
-	window_destroy(dock->window);
-
-	free(dock);
-}
 
 static void
 dock_redraw_handler(struct widget *widget, void *data)
@@ -1717,18 +2056,6 @@ dock_resize_handler(struct widget *widget,
 	int first_pad_h = horizontal ? 0 : DEFAULT_SPACING / 2;
 	int first_pad_w = horizontal ? DEFAULT_SPACING / 2 : 0;
 
-	/*
-	wl_list_for_each(launcher, &dock->launcher_list, link) {
-		widget_set_allocation(launcher->widget, x, y, 
-						w + first_pad_w + 1, h + first_pad_h + 1);
-		if (horizontal)
-			x += w + first_pad_w;
-		else
-			y += h + first_pad_h;
-		first_pad_h = first_pad_w = 0;
-	}
-		*/
-
 	w = 170;
 
 	if (horizontal)
@@ -1736,42 +2063,6 @@ dock_resize_handler(struct widget *widget,
 	else
 		y = height - (h = DEFAULT_SPACING * 3);
 
-	/*
-	struct panel_launcher *launcher;
-	struct panel *panel = data;
-	int x = 0;
-	int y = 0;
-	int w = height > width ? width : height;
-	int h = w;
-	int horizontal = panel->panel_position == WESTON_DESKTOP_SHELL_PANEL_POSITION_TOP || panel->panel_position == WESTON_DESKTOP_SHELL_PANEL_POSITION_BOTTOM;
-	int first_pad_h = horizontal ? 0 : DEFAULT_SPACING / 2;
-	int first_pad_w = horizontal ? DEFAULT_SPACING / 2 : 0;
-
-	wl_list_for_each(launcher, &panel->launcher_list, link) {
-		widget_set_allocation(launcher->widget, x, y,
-				      w + first_pad_w + 1, h + first_pad_h + 1);
-		if (horizontal)
-			x += w + first_pad_w;
-		else
-			y += h + first_pad_h;
-		first_pad_h = first_pad_w = 0;
-	}
-
-	if (panel->clock_format == CLOCK_FORMAT_SECONDS)
-		w = 170;
-	else /* CLOCK_FORMAT_MINUTES and 24H versions */
-	/*
-		w = 150;
-	
-	if (horizontal)
-		x = width - w;
-	else
-		y = height - (h = DEFAULT_SPACING * 3);
-
-	if (panel->clock)
-		widget_set_allocation(panel->clock->widget,
-				      x, y, w + 1, h + 1);
-	*/
 }
 
 static int
@@ -1819,56 +2110,14 @@ dock_configure(void *data,
 }
 
 
-static struct dock*
-dock_create(struct desktop* desktop, struct output* output)
-{
-	struct dock *dock;
-	struct weston_config_section *s;
 
-	dock = xzalloc(sizeof *dock);
-	dock->owner = output;
 
-	//configure
-	dock->base.configure = dock_configure;
-	dock->window = window_create_custom(desktop->display);
-	dock->widget = window_add_widget(dock->window, dock);
 
-	//wl_list_init
-	wl_list_init(&dock->launcher_list);
-
-	window_set_title(dock->window, "dock");
-	window_set_user_data(dock->window, dock);
-
-	//Redraw and resize handler
-	widget_set_redraw_handler(dock->widget, dock_redraw_handler);
-	widget_set_resize_handler(dock->widget, dock_resize_handler);
-
-	//Dock position
-	dock->dock_position = desktop->dock_position;
-
-	//Read the configuration file
-	s = weston_config_get_section(desktop->config, "shell", NULL, NULL);
-	//Get color, currently dock-color = panel-color
-	weston_config_section_get_color(s, "panel-color", &dock->color, 0xaa000000);
-	
-	//Todo: Add_launcher
-
-	return dock;
-}
-
-static void
-parse_dock_position(struct desktop* desktop, struct weston_config_section *s)
-{
-	//char* position;
-
-	//Currently, only support bottom dock
-	desktop->dock_position = WESTON_DESKTOP_SHELL_DOCK_POSITION_BOTTOM;
-}
 
 int main(int argc, char *argv[])
 {
-	struct desktop desktop = { 0 };
-	struct output *output;
+	Desktop desktop = { 0 };
+	Output *output;
 	struct weston_config_section *s;
 	const char *config_file;
 

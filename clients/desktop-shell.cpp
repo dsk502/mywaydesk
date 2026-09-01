@@ -551,9 +551,10 @@ void
 Panel::panel_add_launcher(const char *icon, const char *path, const char *displayname)
 {
 	//Todo: fix the memory problem of PanelLauncher
-	PanelLauncher *launcher;
+	//Todo: edit the callbacks
+	PanelLauncher *launcher = new PanelLauncher();
 
-	launcher = xzalloc(sizeof *launcher);
+	//launcher = xzalloc(sizeof *launcher);
 	launcher->icon = load_icon_or_fallback(icon);
 	launcher->path = xstrdup(path);
 	launcher->displayname = xstrdup(displayname);
@@ -715,45 +716,62 @@ public:
 	~PanelLauncher();
 	void panel_launcher_activate();
 
-	/*
-	void panel_launcher_redraw_handler(struct widget *widget, void *data);
-	int panel_launcher_motion_handler(struct widget *widget, struct input *input,
+	//Handlers (callbacks)
+	static void panel_launcher_redraw_handler(struct widget *widget, void *data);
+	static int panel_launcher_motion_handler(struct widget *widget, struct input *input,
 				uint32_t time, float x, float y, void *data);
 
-	int panel_launcher_enter_handler(struct widget *widget, struct input *input,
+	static int panel_launcher_enter_handler(struct widget *widget, struct input *input,
 				float x, float y, void *data);
-	void panel_launcher_leave_handler(struct widget *widget,
+	static void panel_launcher_leave_handler(struct widget *widget,
 				struct input *input, void *data);
 
-	void panel_launcher_button_handler(struct widget *widget,
+	static void panel_launcher_button_handler(struct widget *widget,
 				struct input *input, uint32_t time,
 			    uint32_t button,
 			    enum wl_pointer_button_state state, void *data);
 
-	void panel_launcher_touch_down_handler(struct widget *widget, struct input *input,
+	static void panel_launcher_touch_down_handler(struct widget *widget, struct input *input,
 				uint32_t serial, uint32_t time, int32_t id,
 				float x, float y, void *data);
-    void panel_launcher_touch_up_handler(struct widget *widget, struct input *input,
+    static void panel_launcher_touch_up_handler(struct widget *widget, struct input *input,
 				uint32_t serial, uint32_t time, int32_t id,
 				void *data);
 
-	void panel_launcher_tablet_tool_proximity_in_handler(struct widget *widget,
+	static void panel_launcher_tablet_tool_proximity_in_handler(struct widget *widget,
 				struct tablet_tool *tool,
 				struct tablet *tablet, void *data);
-	void panel_launcher_tablet_tool_proximity_out_handler(struct widget *widget,
+	static void panel_launcher_tablet_tool_proximity_out_handler(struct widget *widget,
 				struct tablet_tool *tool, void *data);
 
-	void panel_launcher_tablet_tool_up_handler(struct widget *widget,
+	static void panel_launcher_tablet_tool_up_handler(struct widget *widget,
 				struct tablet_tool *tool,
 				void *data);
 	
-	void panel_launcher_tablet_tool_button_handler(struct widget *widget,
+	static void panel_launcher_tablet_tool_button_handler(struct widget *widget,
 				struct tablet_tool *tool,
 				uint32_t button,
 				uint32_t state_w,
 				void *data);
-	*/
+	
 };
+
+/*void
+panel_destroy_launcher()*/
+PanelLauncher::~PanelLauncher()
+{
+	custom_env_fini(&launcher->env);
+
+	free(this->path);
+	free(this->displayname);
+
+	cairo_surface_destroy(this->icon);
+
+	widget_destroy(this->widget);
+	wl_list_remove(&this->link);
+
+	free(this);
+}
 
 void
 PanelLauncher::panel_launcher_activate()
@@ -780,28 +798,11 @@ PanelLauncher::panel_launcher_activate()
 }
 
 /*void
-panel_destroy_launcher()*/
-PanelLauncher::~PanelLauncher()
-{
-	custom_env_fini(&launcher->env);
-
-	free(this->path);
-	free(this->displayname);
-
-	cairo_surface_destroy(this->icon);
-
-	widget_destroy(this->widget);
-	wl_list_remove(&this->link);
-
-	free(this);
-}
-
-/*void
 PanelLauncher::panel_launcher_redraw_handler(struct widget *widget, void *data)*/
 static void
-panel_launcher_redraw_handler(struct widget *widget, void *data)
+PanelLauncher::panel_launcher_redraw_handler(struct widget *widget, void *data)
 {
-	PanelLauncher *launcher = data;
+	PanelLauncher *launcher = static_cast<PanelLauncher *>(data);
 	struct rectangle allocation;
 	cairo_t *cr;
 
@@ -838,10 +839,10 @@ panel_launcher_redraw_handler(struct widget *widget, void *data)
 PanelLauncher::panel_launcher_motion_handler(struct widget *widget, struct input *input,
 			      uint32_t time, float x, float y, void *data)*/
 static int
-panel_launcher_motion_handler(struct widget *widget, struct input *input,
+PanelLauncher::panel_launcher_motion_handler(struct widget *widget, struct input *input,
 			      uint32_t time, float x, float y, void *data)
 {
-	PanelLauncher *launcher = data;
+	PanelLauncher *launcher = static_cast<PanelLauncher *>(data);
 
 	widget_set_tooltip(widget, launcher->displayname, x, y);
 
@@ -855,7 +856,7 @@ static int
 PanelLauncher::panel_launcher_enter_handler(struct widget *widget, struct input *input,
 			     float x, float y, void *data)
 {
-	PanelLauncher *launcher = data;
+	PanelLauncher *launcher = static_cast<PanelLauncher *>(data);
 
 	launcher->focused = 1;
 	widget_schedule_redraw(widget);
@@ -867,10 +868,10 @@ PanelLauncher::panel_launcher_enter_handler(struct widget *widget, struct input 
 PanelLauncher::panel_launcher_leave_handler(struct widget *widget,
 			     struct input *input, void *data)*/
 static void
-panel_launcher_leave_handler(struct widget *widget,
+PanelLauncher::panel_launcher_leave_handler(struct widget *widget,
 			     struct input *input, void *data)
 {
-	PanelLauncher *launcher = data;
+	PanelLauncher *launcher = static_cast<PanelLauncher *>(data);
 
 	launcher->focused = 0;
 	widget_destroy_tooltip(widget);
@@ -883,17 +884,17 @@ PanelLauncher::panel_launcher_button_handler(struct widget *widget,
 			      uint32_t button,
 			      enum wl_pointer_button_state state, void *data)*/
 static void
-panel_launcher_button_handler(struct widget *widget,
+PanclLauncher::panel_launcher_button_handler(struct widget *widget,
 			      struct input *input, uint32_t time,
 			      uint32_t button,
 			      enum wl_pointer_button_state state, void *data)
 {
 	PanelLauncher *launcher;
 
-	launcher = widget_get_user_data(widget);
+	launcher = static_cast<PanelLauncher *>(widget_get_user_data(widget));
 	widget_schedule_redraw(widget);
 	if (state == WL_POINTER_BUTTON_STATE_RELEASED)
-		panel_launcher_activate(launcher);
+		launcher->panel_launcher_activate();
 
 }
 
@@ -902,49 +903,49 @@ PanelLauncher::panel_launcher_touch_down_handler(struct widget *widget, struct i
 				  uint32_t serial, uint32_t time, int32_t id,
 				  				  float x, float y, void *data)*/
 static void
-panel_launcher_touch_down_handler(struct widget *widget, struct input *input,
-				  uint32_t serial, uint32_t time, int32_t id,
-				  				  float x, float y, void *data)
+PanelLauncher::panel_launcher_touch_down_handler(struct widget *widget, struct input *input,
+			uint32_t serial, uint32_t time, int32_t id,
+			float x, float y, void *data)
 {
 	PanelLauncher *launcher;
 
-	launcher = widget_get_user_data(widget);
+	launcher = static_cast<PanelLauncher *>(widget_get_user_data(widget));
 	launcher->focused = 1;
 	widget_schedule_redraw(widget);
 }
 
 static void
-panel_launcher_touch_up_handler(struct widget *widget, struct input *input,
+PanelLauncher::panel_launcher_touch_up_handler(struct widget *widget, struct input *input,
 				uint32_t serial, uint32_t time, int32_t id,
 				void *data)
 {
 	PanelLauncher *launcher;
 
-	launcher = widget_get_user_data(widget);
+	launcher = static_cast<PanelLauncher *>(widget_get_user_data(widget));
 	launcher->focused = 0;
 	widget_schedule_redraw(widget);
-	panel_launcher_activate(launcher);
+	launcher->panel_launcher_activate();
 }
 
 static void
-panel_launcher_tablet_tool_proximity_in_handler(struct widget *widget,
+PanelLauncher::panel_launcher_tablet_tool_proximity_in_handler(struct widget *widget,
 						struct tablet_tool *tool,
 						struct tablet *tablet, void *data)
 {
 	PanelLauncher *launcher;
 
-	launcher = widget_get_user_data(widget);
+	launcher = static_cast<PanelLauncher *>(widget_get_user_data(widget));
 	launcher->focused = 1;
 	widget_schedule_redraw(widget);
 }
 
 static void
-panel_launcher_tablet_tool_proximity_out_handler(struct widget *widget,
+PanelLauncher::panel_launcher_tablet_tool_proximity_out_handler(struct widget *widget,
 						 struct tablet_tool *tool, void *data)
 {
 	PanelLauncher *launcher;
 
-	launcher = widget_get_user_data(widget);
+	launcher = static_cast<PanelLauncher *>(widget_get_user_data(widget));
 	launcher->focused = 0;
 	widget_schedule_redraw(widget);
 }
@@ -954,14 +955,14 @@ PanelLauncher::panel_launcher_tablet_tool_up_handler(struct widget *widget,
 				      struct tablet_tool *tool,
 				      void *data)*/
 static void
-panel_launcher_tablet_tool_up_handler(struct widget *widget,
+PanelLauncher::panel_launcher_tablet_tool_up_handler(struct widget *widget,
 				      struct tablet_tool *tool,
 				      void *data)
 {
 	PanelLauncher *launcher;
 
-	launcher = widget_get_user_data(widget);
-	panel_launcher_activate(launcher);
+	launcher = static_cast<PanelLauncher *>(widget_get_user_data(widget));
+	launcher->panel_launcher_activate();
 }
 
 /*
@@ -972,7 +973,7 @@ PanelLauncher::panel_launcher_tablet_tool_button_handler(struct widget *widget,
 					  uint32_t state_w,
 					  void *data)*/
 static void
-panel_launcher_tablet_tool_button_handler(struct widget *widget,
+PanelLauncher::panel_launcher_tablet_tool_button_handler(struct widget *widget,
 					  struct tablet_tool *tool,
 					  uint32_t button,
 					  uint32_t state_w,
@@ -981,10 +982,10 @@ panel_launcher_tablet_tool_button_handler(struct widget *widget,
 	PanelLauncher *launcher;
 	enum zwp_tablet_tool_v2_button_state state = state_w;
 
-	launcher = widget_get_user_data(widget);
+	launcher = static_cast<PanelLauncher *>(widget_get_user_data(widget));
 
 	if (state == ZWP_TABLET_TOOL_V2_BUTTON_STATE_RELEASED)
-		panel_launcher_activate(launcher);
+		launcher->panel_launcher_activate();
 }
 
 /*
@@ -1042,15 +1043,6 @@ PanelClock::~PanelClock()
 	//free(clock);
 }
 
-/*
-struct panel_clock {
-	struct widget *widget;
-	Panel *panel;
-	struct toytimer timer;
-	char *format_string;
-	time_t refresh_timer;
-};*/
-
 class UnlockDialog {
 public:
 	struct window *window;
@@ -1067,42 +1059,41 @@ public:
 /*
 static struct unlock_dialog *
 unlock_dialog_create(struct desktop *desktop)*/
-//Todo: fix the constructor
 UnlockDialog::UnlockDialog(Desktop *desktop)
 {
 	struct display *display = desktop->display;
-	struct unlock_dialog *dialog;
+	//struct unlock_dialog *dialog;
 	struct wl_surface *surface;
 
-	dialog = xzalloc(sizeof *dialog);
+	//dialog = xzalloc(sizeof *dialog);
 
-	dialog->window = window_create_custom(display);
-	dialog->widget = window_frame_create(dialog->window, dialog);
-	window_set_title(dialog->window, "Unlock your desktop");
+	this->window = window_create_custom(display);
+	this->widget = window_frame_create(dialog->window, dialog);
+	window_set_title(this->window, "Unlock your desktop");
 
-	window_set_user_data(dialog->window, dialog);
-	window_set_keyboard_focus_handler(dialog->window,
+	window_set_user_data(this->window, this);
+	window_set_keyboard_focus_handler(this->window,
 					  unlock_dialog_keyboard_focus_handler);
-	dialog->button = widget_add_widget(dialog->widget, dialog);
-	widget_set_redraw_handler(dialog->widget,
+	this->button = widget_add_widget(this->widget, this);
+	widget_set_redraw_handler(this->widget,
 				  unlock_dialog_redraw_handler);
-	widget_set_enter_handler(dialog->button,
+	widget_set_enter_handler(this->button,
 				 unlock_dialog_widget_enter_handler);
-	widget_set_leave_handler(dialog->button,
+	widget_set_leave_handler(this->button,
 				 unlock_dialog_widget_leave_handler);
-	widget_set_button_handler(dialog->button,
+	widget_set_button_handler(this->button,
 				  unlock_dialog_button_handler);
-	widget_set_touch_down_handler(dialog->button,
+	widget_set_touch_down_handler(this->button,
 				      unlock_dialog_touch_down_handler);
-	widget_set_touch_up_handler(dialog->button,
+	widget_set_touch_up_handler(this->button,
 				      unlock_dialog_touch_up_handler);
 
-	surface = window_get_wl_surface(dialog->window);
+	surface = window_get_wl_surface(this->window);
 	weston_desktop_shell_set_lock_surface(desktop->shell, surface);
 
-	window_schedule_resize(dialog->window, 260, 230);
+	window_schedule_resize(this->window, 260, 230);
 
-	return dialog;
+	//return dialog;
 }
 
 /*

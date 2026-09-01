@@ -23,8 +23,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef _DS_DESKTOP_HPP_	//desktop-shell/desktop.hpp
-#define _DS_DESKTOP_HPP_
+#ifndef _DS_OUTPUT_HPP_ //desktop-shell/output.cpp
+#define _DS_OUTPUT_HPP_
 
 #include "config.h"
 
@@ -60,6 +60,8 @@
 #include "tablet-unstable-v2-client-protocol.h"
 #include "weston-desktop-shell-client-protocol.h"
 
+#include "desktop.hpp"
+
 #define DEFAULT_CLOCK_FORMAT CLOCK_FORMAT_MINUTES
 #define DEFAULT_SPACING 10
 
@@ -71,40 +73,41 @@ enum clock_format {
 	CLOCK_FORMAT_NONE
 };
 
-class Desktop {
+class Output {
 public:
-	struct display *display;
-	struct weston_desktop_shell *shell;
-	struct unlock_dialog *unlock_dialog;
-	struct task unlock_task;
-	struct wl_list outputs;
+	struct wl_output *output;
+	uint32_t server_output_id;
+	struct wl_list link;
 
-	int want_panel;
-	enum weston_desktop_shell_panel_position panel_position;
-	enum weston_desktop_shell_dock_position dock_position;
-	enum clock_format clock_format;
+	int x;
+	int y;
+	Panel *panel;
+	Dock *dock;
+	Background *background
 
-	struct window *grab_window;
-	struct widget *grab_widget;
-
-	struct weston_config *config;
-	bool locking;
-
-	enum cursor_type grab_cursor;
-
-	int painted;
-
-	int is_desktop_painted();
-	//void check_desktop_ready(struct window *window);
-	void parse_panel_position(struct weston_config_section *s);
-	void parse_dock_position(struct weston_config_section *s);
-	void parse_clock_format(struct weston_config_section *s);
-
-	void grab_surface_destroy();
-	void grab_surface_create();
-
-	void create_output(uint32_t id);
-	void output_remove(Output *output);
+	Output(Desktop *desktop);
+	~Output();
 };
+
+Output::Output(Desktop *desktop) {
+	struct wl_surface *surface;
+
+	if (desktop->want_panel) {
+		this->panel = panel_create(desktop, this);
+		surface = window_get_wl_surface(this->panel->window);
+		weston_desktop_shell_set_panel(desktop->shell,
+					       this->output, surface);
+		
+		//Init the dock in the output layer
+		this->dock = dock_create(desktop, this);
+		surface = window_get_wl_surface(this->dock->window);
+		weston_desktop_shell_set_dock(desktop->shell, this->output, surface);
+	}
+
+	this->background = background_create(desktop, this);
+	surface = window_get_wl_surface(this->background->window);
+	weston_desktop_shell_set_background(desktop->shell,
+					    this->output, surface);
+}
 
 #endif

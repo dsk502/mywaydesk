@@ -23,8 +23,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef _DS_DESKTOP_HPP_	//desktop-shell/desktop.hpp
-#define _DS_DESKTOP_HPP_
+#ifndef _DS_UNLOCKDIALOG_HPP_	//desktop-shell/unlockdialog.hpp
+#define _DS_UNLOCKDIALOG_HPP_
 
 #include "config.h"
 
@@ -63,48 +63,17 @@
 #define DEFAULT_CLOCK_FORMAT CLOCK_FORMAT_MINUTES
 #define DEFAULT_SPACING 10
 
-enum clock_format {
-	CLOCK_FORMAT_MINUTES,
-	CLOCK_FORMAT_SECONDS,
-	CLOCK_FORMAT_MINUTES_24H,
-	CLOCK_FORMAT_SECONDS_24H,
-	CLOCK_FORMAT_NONE
-};
-
-class Desktop {
+class UnlockDialog {
 public:
-	struct display *display;
-	struct weston_desktop_shell *shell;
-	struct unlock_dialog *unlock_dialog;
-	struct task unlock_task;
-	struct wl_list outputs;
+	struct window *window;
+	struct widget *widget;
+	struct widget *button;
+	int button_focused;
+	int closing;
+	Desktop *desktop;
 
-	int want_panel;
-	enum weston_desktop_shell_panel_position panel_position;
-	enum weston_desktop_shell_dock_position dock_position;
-	enum clock_format clock_format;
-
-	struct window *grab_window;
-	struct widget *grab_widget;
-
-	struct weston_config *config;
-	bool locking;
-
-	enum cursor_type grab_cursor;
-
-	int painted;
-
-	int is_desktop_painted();
-	//void check_desktop_ready(struct window *window);
-	void parse_panel_position(struct weston_config_section *s);
-	void parse_dock_position(struct weston_config_section *s);
-	void parse_clock_format(struct weston_config_section *s);
-
-	void grab_surface_destroy();
-	void grab_surface_create();
-
-	void create_output(uint32_t id);
-	void output_remove(Output *output);
+	UnlockDialog(Desktop *desktop);
+	~UnlockDialog();
 };
 
 #endif

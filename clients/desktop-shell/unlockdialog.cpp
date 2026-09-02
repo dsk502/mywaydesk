@@ -23,9 +23,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-/*
-static struct unlock_dialog *
-unlock_dialog_create(struct desktop *desktop)*/
+#include "unlockdialog.hpp"
+
 UnlockDialog::UnlockDialog(Desktop *desktop)
 {
 	struct display *display = desktop->display;
@@ -35,7 +34,7 @@ UnlockDialog::UnlockDialog(Desktop *desktop)
 	//dialog = xzalloc(sizeof *dialog);
 
 	this->window = window_create_custom(display);
-	this->widget = window_frame_create(dialog->window, dialog);
+	this->widget = window_frame_create(this->window, this);
 	window_set_title(this->window, "Unlock your desktop");
 
 	window_set_user_data(this->window, this);
@@ -70,4 +69,135 @@ UnlockDialog::~UnlockDialog()
 {
 	window_destroy(this->window);
 	//free(dialog);
+}
+
+static void
+unlock_dialog_redraw_handler(struct widget *widget, void *data)
+{
+	UnlockDialog *dialog = static_cast<UnlockDialog *>(data);
+	struct rectangle allocation;
+	cairo_surface_t *surface;
+	cairo_t *cr;
+	cairo_pattern_t *pat;
+	double cx, cy, r, f;
+
+	cr = widget_cairo_create(widget);
+
+	widget_get_allocation(dialog->widget, &allocation);
+	cairo_rectangle(cr, allocation.x, allocation.y,
+			allocation.width, allocation.height);
+	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+	cairo_set_source_rgba(cr, 0, 0, 0, 0.6);
+	cairo_fill(cr);
+
+	cairo_translate(cr, allocation.x, allocation.y);
+	if (dialog->button_focused)
+		f = 1.0;
+	else
+		f = 0.7;
+
+	cx = allocation.width / 2.0;
+	cy = allocation.height / 2.0;
+	r = (cx < cy ? cx : cy) * 0.4;
+	pat = cairo_pattern_create_radial(cx, cy, r * 0.7, cx, cy, r);
+	cairo_pattern_add_color_stop_rgb(pat, 0.0, 0, 0.86 * f, 0);
+	cairo_pattern_add_color_stop_rgb(pat, 0.85, 0.2 * f, f, 0.2 * f);
+	cairo_pattern_add_color_stop_rgb(pat, 1.0, 0, 0.86 * f, 0);
+	cairo_set_source(cr, pat);
+	cairo_pattern_destroy(pat);
+	cairo_arc(cr, cx, cy, r, 0.0, 2.0 * M_PI);
+	cairo_fill(cr);
+
+	widget_set_allocation(dialog->button,
+			      allocation.x + cx - r,
+			      allocation.y + cy - r, 2 * r, 2 * r);
+
+	cairo_destroy(cr);
+
+	surface = window_get_surface(dialog->window);
+	cairo_surface_destroy(surface);
+}
+
+static void
+unlock_dialog_button_handler(struct widget *widget,
+			     struct input *input, uint32_t time,
+			     uint32_t button,
+			     enum wl_pointer_button_state state, void *data)
+{
+	UnlockDialog *dialog = static_cast<UnlockDialog *>(data);
+	Desktop *desktop = dialog->desktop;
+
+	if (button == BTN_LEFT) {
+		if (state == WL_POINTER_BUTTON_STATE_RELEASED &&
+		    !dialog->closing) {
+			display_defer(desktop->display, &desktop->unlock_task);
+			dialog->closing = 1;
+		}
+	}
+}
+
+static void
+unlock_dialog_touch_down_handler(struct widget *widget, struct input *input,
+		   uint32_t serial, uint32_t time, int32_t id,
+		   float x, float y, void *data)
+{
+	UnlockDialog *dialog = static_cast<UnlockDialog *>(data);
+
+	dialog->button_focused = 1;
+	widget_schedule_redraw(widget);
+}
+
+static void
+unlock_dialog_touch_up_handler(struct widget *widget, struct input *input,
+				uint32_t serial, uint32_t time, int32_t id,
+				void *data)
+{
+	UnlockDialog *dialog = static_cast<UnlockDialog *>(data);
+	Desktop *desktop = dialog->desktop;
+
+	dialog->button_focused = 0;
+	widget_schedule_redraw(widget);
+	display_defer(desktop->display, &desktop->unlock_task);
+	dialog->closing = 1;
+}
+
+static void
+unlock_dialog_keyboard_focus_handler(struct window *window,
+				     struct input *device, void *data)
+{
+	window_schedule_redraw(window);
+}
+
+static int
+unlock_dialog_widget_enter_handler(struct widget *widget,
+				   struct input *input,
+				   float x, float y, void *data)
+{
+	UnlockDialog *dialog = static_cast<UnlockDialog *>(data);
+
+	dialog->button_focused = 1;
+	widget_schedule_redraw(widget);
+
+	return CURSOR_LEFT_PTR;
+}
+
+static void
+unlock_dialog_widget_leave_handler(struct widget *widget,
+				   struct input *input, void *data)
+{
+	UnlockDialog *dialog = static_cast<UnlockDialog *>(data);
+
+	dialog->button_focused = 0;
+	widget_schedule_redraw(widget);
+}
+
+void
+unlock_dialog_finish(struct task *task, uint32_t events)
+{
+	Desktop *desktop =
+		container_of(task, Desktop, unlock_task);
+
+	weston_desktop_shell_unlock(desktop->shell);
+	delete (desktop->unlock_dialog);
+	desktop->unlock_dialog = NULL;
 }

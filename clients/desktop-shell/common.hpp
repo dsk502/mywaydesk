@@ -23,6 +23,9 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+//This file contains the minimal common functions for the components of the desktop-shell folder to use.
+//These functions should not be dependent on other components in this folder (like Desktop or Output).
+
 #ifndef _DS_COMMON_HPP_ //desktop-shell/common.hpp
 #define _DS_COMMON_HPP_
 
@@ -83,5 +86,7 @@ void check_desktop_ready(struct window *window);
 void set_hex_color(cairo_t *cr, uint32_t color);
 
 cairo_surface_t * load_icon_or_fallback(const char *icon);
+
+void sigchild_handler(int s);
 
 #endif

@@ -71,3 +71,13 @@ load_icon_or_fallback(const char *icon)
 
 	return surface;
 }
+
+void
+sigchild_handler(int s)
+{
+	int status;
+	pid_t pid;
+
+	while (pid = waitpid(-1, &status, WNOHANG), pid > 0)
+		fprintf(stderr, "child %d exited\n", pid);
+}

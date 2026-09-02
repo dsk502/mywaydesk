@@ -25,6 +25,12 @@
 
 #include "desktop.hpp"
 
+const struct weston_desktop_shell_listener listener = {
+	desktop_shell_configure,
+	desktop_shell_prepare_lock_surface,
+	desktop_shell_grab_cursor
+};
+
 int
 Desktop::is_desktop_painted()
 {
@@ -208,6 +214,16 @@ Desktop::output_remove(Output *output)
 }
 
 void
+Desktop::desktop_destroy_outputs()
+{
+	Output *tmp;
+	Output *output;
+
+	wl_list_for_each_safe(output, tmp, &this->outputs, link)
+		delete output;
+}
+
+void
 check_desktop_ready(struct window *window)
 {
 	struct display *display;
@@ -220,5 +236,125 @@ check_desktop_ready(struct window *window)
 		desktop->painted = 1;
 
 		weston_desktop_shell_desktop_ready(desktop->shell);
+	}
+}
+
+void
+desktop_shell_configure(void *data,
+			struct weston_desktop_shell *desktop_shell,
+			uint32_t edges,
+			struct wl_surface *surface,
+			int32_t width, int32_t height)
+{
+	struct window *window = static_cast<struct window *>(wl_surface_get_user_data(surface));
+	struct surface *s = static_cast<struct surface *>(window_get_user_data(window));
+
+	s->configure(data, desktop_shell, edges, window, width, height);
+}
+
+void
+desktop_shell_prepare_lock_surface(void *data,
+				   struct weston_desktop_shell *desktop_shell)
+{
+	Desktop *desktop = static_cast<Desktop *>(data);
+
+	if (!desktop->locking) {
+		weston_desktop_shell_unlock(desktop->shell);
+		return;
+	}
+
+	if (!desktop->unlock_dialog) {
+		desktop->unlock_dialog = new UnlockDialog(desktop);
+		desktop->unlock_dialog->desktop = desktop;
+	}
+}
+
+void
+desktop_shell_grab_cursor(void *data,
+			  struct weston_desktop_shell *desktop_shell,
+			  uint32_t cursor)
+{
+	Desktop *desktop = static_cast<Desktop *>(data);
+
+	switch (cursor) {
+	case WESTON_DESKTOP_SHELL_CURSOR_NONE:
+		desktop->grab_cursor = CURSOR_BLANK;
+		break;
+	case WESTON_DESKTOP_SHELL_CURSOR_BUSY:
+		desktop->grab_cursor = CURSOR_WATCH;
+		break;
+	case WESTON_DESKTOP_SHELL_CURSOR_MOVE:
+		desktop->grab_cursor = CURSOR_DRAGGING;
+		break;
+	case WESTON_DESKTOP_SHELL_CURSOR_RESIZE_TOP:
+		desktop->grab_cursor = CURSOR_TOP;
+		break;
+	case WESTON_DESKTOP_SHELL_CURSOR_RESIZE_BOTTOM:
+		desktop->grab_cursor = CURSOR_BOTTOM;
+		break;
+	case WESTON_DESKTOP_SHELL_CURSOR_RESIZE_LEFT:
+		desktop->grab_cursor = CURSOR_LEFT;
+		break;
+	case WESTON_DESKTOP_SHELL_CURSOR_RESIZE_RIGHT:
+		desktop->grab_cursor = CURSOR_RIGHT;
+		break;
+	case WESTON_DESKTOP_SHELL_CURSOR_RESIZE_TOP_LEFT:
+		desktop->grab_cursor = CURSOR_TOP_LEFT;
+		break;
+	case WESTON_DESKTOP_SHELL_CURSOR_RESIZE_TOP_RIGHT:
+		desktop->grab_cursor = CURSOR_TOP_RIGHT;
+		break;
+	case WESTON_DESKTOP_SHELL_CURSOR_RESIZE_BOTTOM_LEFT:
+		desktop->grab_cursor = CURSOR_BOTTOM_LEFT;
+		break;
+	case WESTON_DESKTOP_SHELL_CURSOR_RESIZE_BOTTOM_RIGHT:
+		desktop->grab_cursor = CURSOR_BOTTOM_RIGHT;
+		break;
+	case WESTON_DESKTOP_SHELL_CURSOR_ARROW:
+	default:
+		desktop->grab_cursor = CURSOR_LEFT_PTR;
+	}
+}
+
+int
+grab_surface_enter_handler(struct widget *widget, struct input *input,
+			   float x, float y, void *data)
+{
+	Desktop *desktop = static_cast<Desktop *>(data);
+
+	return desktop->grab_cursor;
+}
+
+void
+global_handler(struct display *display, uint32_t id,
+	       const char *interface, uint32_t version, void *data)
+{
+	Desktop *desktop = static_cast<Desktop *>(data);
+
+	if (!strcmp(interface, "weston_desktop_shell")) {
+		desktop->shell = static_cast<struct weston_desktop_shell *>(display_bind(desktop->display,
+					      id, &weston_desktop_shell_interface, 1));
+		weston_desktop_shell_add_listener(desktop->shell,
+						  &listener,
+						  desktop);
+	} else if (!strcmp(interface, "wl_output")) {
+		desktop->create_output(id);
+	}
+}
+
+void
+global_handler_remove(struct display *display, uint32_t id,
+	       const char *interface, uint32_t version, void *data)
+{
+	Desktop *desktop = static_cast<Desktop *>(data);
+	Output *output;
+
+	if (!strcmp(interface, "wl_output")) {
+		wl_list_for_each(output, &desktop->outputs, link) {
+			if (output->server_output_id == id) {
+				desktop->output_remove(output);
+				break;
+			}
+		}
 	}
 }

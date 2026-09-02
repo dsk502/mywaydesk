@@ -28,12 +28,13 @@
 
 #include "output.hpp"
 #include "desktop-shell/common.hpp"
+#include "unlockdialog.hpp"
 
 class Desktop {
 public:
 	struct display *display;
 	struct weston_desktop_shell *shell;
-	struct unlock_dialog *unlock_dialog;
+	UnlockDialog *unlock_dialog;
 	struct task unlock_task;
 	struct wl_list outputs;
 
@@ -63,6 +64,36 @@ public:
 
 	void create_output(uint32_t id);
 	void output_remove(Output *output);
+	void desktop_destroy_outputs();
 };
+
+const struct weston_desktop_shell_listener listener;
+
+void check_desktop_ready(struct window *window);
+
+void
+desktop_shell_configure(void *data,
+			struct weston_desktop_shell *desktop_shell,
+			uint32_t edges,
+			struct wl_surface *surface,
+			int32_t width, int32_t height);
+
+void
+desktop_shell_prepare_lock_surface(void *data,
+				   struct weston_desktop_shell *desktop_shell);
+
+void
+desktop_shell_grab_cursor(void *data,
+			  struct weston_desktop_shell *desktop_shell,
+			  uint32_t cursor);
+
+int grab_surface_enter_handler(struct widget *widget, struct input *input,
+			   float x, float y, void *data);
+
+void global_handler(struct display *display, uint32_t id,
+	       const char *interface, uint32_t version, void *data);
+
+void global_handler_remove(struct display *display, uint32_t id,
+	       const char *interface, uint32_t version, void *data);
 
 #endif

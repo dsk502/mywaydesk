@@ -24,8 +24,6 @@
  */
 
 #include "output.hpp"
- /*static void
-output_destroy(struct output *output)*/
 
 void
 Output::output_init(Desktop *desktop) {
@@ -59,4 +57,55 @@ Output::~Output()
 		delete dock;
 	wl_output_destroy(this->output);
 	wl_list_remove(&this->link);
+}
+
+void
+output_handle_geometry(void *data,
+                       struct wl_output *wl_output,
+                       int x, int y,
+                       int physical_width,
+                       int physical_height,
+                       int subpixel,
+                       const char *make,
+                       const char *model,
+                       int transform)
+{
+	Output *output = static_cast<Output *>(data);
+
+	output->x = x;
+	output->y = y;
+
+	if (output->panel)
+		window_set_buffer_transform(output->panel->window, static_cast<wl_output_transform>(transform));
+	if (output->background)
+		window_set_buffer_transform(output->background->window, static_cast<wl_output_transform>(transform));
+}
+
+void
+output_handle_mode(void *data,
+		   struct wl_output *wl_output,
+		   uint32_t flags,
+		   int width,
+		   int height,
+		   int refresh)
+{
+}
+
+void
+output_handle_done(void *data,
+                   struct wl_output *wl_output)
+{
+}
+
+void
+output_handle_scale(void *data,
+                    struct wl_output *wl_output,
+                    int32_t scale)
+{
+	Output *output = static_cast<Output *>(data);
+
+	if (output->panel)
+		window_set_buffer_scale(output->panel->window, scale);
+	if (output->background)
+		window_set_buffer_scale(output->background->window, scale);
 }

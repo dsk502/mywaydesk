@@ -27,7 +27,7 @@
 #define _DS_DESKTOP_HPP_
 
 #include "output.hpp"
-#include "desktop-shell/common.hpp"
+#include "common.hpp"
 #include "unlockdialog.hpp"
 
 class Desktop {

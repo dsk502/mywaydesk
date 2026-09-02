@@ -26,43 +26,9 @@
 #ifndef _DS_BACKGROUND_HPP_	//desktop-shell/background.hpp
 #define _DS_BACKGROUND_HPP_
 
-#include "config.h"
-
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <errno.h>
-#include <math.h>
-#include <cairo.h>
-#include <sys/wait.h>
-#include <linux/input.h>
-#include <libgen.h>
-#include <ctype.h>
-#include <time.h>
-#include <assert.h>
-
-#include <wayland-client.h>
-
-#include <libweston/config-parser.h>
-#include <libweston/zalloc.h>
-#include "shared/helpers.h"
-#include "shared/xalloc.h"
-#include "shared/cairo-util.h"
-#include "shared/file-util.h"
-#include "shared/process-util.h"
-#include "shared/timespec-util.h"
-
-#include "window.h"
-
-#include "tablet-unstable-v2-client-protocol.h"
-#include "weston-desktop-shell-client-protocol.h"
-
 #include "output.hpp"
 #include "desktop.hpp"
-#include "desktop-shell/common.hpp"
+#include "common.hpp"
 
 enum {
 	BACKGROUND_SCALE,

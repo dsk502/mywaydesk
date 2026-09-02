@@ -28,7 +28,7 @@
 
 #include "output.hpp"
 #include "desktop.hpp"
-#include "desktop-shell/common.hpp"
+#include "common.hpp"
 
 class Panel {
 public:

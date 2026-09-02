@@ -1,9 +1,11 @@
 project('weston',
 	'c',
+	'cpp',
 	version: '14.0.2',
 	default_options: [
 		'warning_level=3',
 		'c_std=gnu99',
+		'cpp_std=c++17',
 		'b_lundef=true',
 	],
 	meson_version: '>= 0.63.0',

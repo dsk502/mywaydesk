@@ -26,7 +26,7 @@
 #ifndef _DS_OUTPUT_HPP_ //desktop-shell/output.cpp
 #define _DS_OUTPUT_HPP_
 
-#include "desktop-shell/common.hpp"
+#include "common.hpp"
 #include "desktop.hpp"
 #include "panel.hpp"
 #include "dock.hpp"

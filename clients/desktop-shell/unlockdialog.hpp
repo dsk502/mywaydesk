@@ -26,7 +26,7 @@
 #ifndef _DS_UNLOCKDIALOG_HPP_	//desktop-shell/unlockdialog.hpp
 #define _DS_UNLOCKDIALOG_HPP_
 
-#include "desktop-shell/common.hpp"
+#include "common.hpp"
 #include "desktop.hpp"
 
 class UnlockDialog {

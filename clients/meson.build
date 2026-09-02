@@ -362,6 +362,17 @@ if get_option('demo-clients')
 endif
 
 if get_option('shell-desktop')
+	desktop_shell_cpp_sources = files (
+		'desktop-shell/desktop-shell.cpp',
+		'desktop-shell/desktop.cpp',
+		'desktop-shell/output.cpp',
+		'desktop-shell/panel.cpp',
+		'desktop-shell/dock.cpp',
+		'desktop-shell/background.cpp',
+		'desktop-shell/unlockdialog.cpp',
+		'desktop-shell/common.cpp'
+	)
+
 	exe_keyboard = executable(
 		'weston-keyboard',
 		'keyboard.c',
@@ -378,7 +389,7 @@ if get_option('shell-desktop')
 
 	exe_shell_desktop = executable(
 		'weston-desktop-shell',
-		'desktop-shell.c',
+		desktop_shell_cpp_sources,
 		weston_desktop_shell_client_protocol_h,
 		weston_desktop_shell_protocol_c,
 		tablet_unstable_v2_client_protocol_h,

@@ -25,12 +25,6 @@
 
 #include "desktop.hpp"
 
-const struct weston_desktop_shell_listener listener = {
-	desktop_shell_configure,
-	desktop_shell_prepare_lock_surface,
-	desktop_shell_grab_cursor
-};
-
 int
 Desktop::is_desktop_painted()
 {
@@ -358,3 +352,9 @@ global_handler_remove(struct display *display, uint32_t id,
 		}
 	}
 }
+
+const struct weston_desktop_shell_listener listener = {
+	desktop_shell_configure,
+	desktop_shell_prepare_lock_surface,
+	desktop_shell_grab_cursor
+};

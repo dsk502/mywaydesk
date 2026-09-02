@@ -30,6 +30,9 @@
 #include "common.hpp"
 #include "unlockdialog.hpp"
 
+class Output;
+class UnlockDialog;
+
 class Desktop {
 public:
 	struct display *display;
@@ -67,8 +70,6 @@ public:
 	void desktop_destroy_outputs();
 };
 
-const struct weston_desktop_shell_listener listener;
-
 void check_desktop_ready(struct window *window);
 
 void
@@ -95,5 +96,7 @@ void global_handler(struct display *display, uint32_t id,
 
 void global_handler_remove(struct display *display, uint32_t id,
 	       const char *interface, uint32_t version, void *data);
+
+extern const struct weston_desktop_shell_listener listener;
 
 #endif

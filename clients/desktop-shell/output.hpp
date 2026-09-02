@@ -32,6 +32,10 @@
 #include "dock.hpp"
 #include "background.hpp"
 
+class Panel;
+class Dock;
+class Background;
+
 class Output {
 public:
 	struct wl_output *output;
@@ -73,11 +77,6 @@ void output_handle_scale(void *data,
                     struct wl_output *wl_output,
                     int32_t scale);
 
-const struct wl_output_listener output_listener = {
-	output_handle_geometry,
-	output_handle_mode,
-	output_handle_done,
-	output_handle_scale
-};
+extern const struct wl_output_listener output_listener;
 
 #endif

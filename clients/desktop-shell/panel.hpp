@@ -30,6 +30,10 @@
 #include "desktop.hpp"
 #include "common.hpp"
 
+class PanelClock;
+class Output;
+class Desktop;
+
 class Panel {
 public:
 	struct surface base;
@@ -134,5 +138,7 @@ public:
 				void *data);
 	
 };
+
+void clock_func(struct toytimer *tt);
 
 #endif

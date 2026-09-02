@@ -25,6 +25,13 @@
 
 #include "output.hpp"
 
+const struct wl_output_listener output_listener = {
+	output_handle_geometry,
+	output_handle_mode,
+	output_handle_done,
+	output_handle_scale
+};
+
 void
 Output::output_init(Desktop *desktop) {
 	struct wl_surface *surface;

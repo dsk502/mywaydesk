@@ -29,6 +29,8 @@
 #include "common.hpp"
 #include "desktop.hpp"
 
+class Desktop;
+
 class UnlockDialog {
 public:
 	struct window *window;
@@ -41,6 +43,31 @@ public:
 	UnlockDialog(Desktop *desktop);
 	~UnlockDialog();
 };
+
+void unlock_dialog_redraw_handler(struct widget *widget, void *data);
+
+void unlock_dialog_button_handler(struct widget *widget,
+			     struct input *input, uint32_t time,
+			     uint32_t button,
+			     enum wl_pointer_button_state state, void *data);
+
+void unlock_dialog_touch_down_handler(struct widget *widget, struct input *input,
+		   uint32_t serial, uint32_t time, int32_t id,
+		   float x, float y, void *data);
+
+void unlock_dialog_touch_up_handler(struct widget *widget, struct input *input,
+				uint32_t serial, uint32_t time, int32_t id,
+				void *data);
+
+int unlock_dialog_widget_enter_handler(struct widget *widget,
+				   struct input *input,
+				   float x, float y, void *data);
+
+void unlock_dialog_widget_leave_handler(struct widget *widget,
+				   struct input *input, void *data);
+
+void unlock_dialog_keyboard_focus_handler(struct window *window,
+				     struct input *device, void *data);
 
 void unlock_dialog_finish(struct task *task, uint32_t events);
 

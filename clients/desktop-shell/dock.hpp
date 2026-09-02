@@ -30,6 +30,8 @@
 #include "output.hpp"
 #include "common.hpp"
 
+class Output;
+
 //Dock
 class Dock {
 public:

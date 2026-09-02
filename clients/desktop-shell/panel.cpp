@@ -218,7 +218,7 @@ Panel::panel_add_clock()
 	widget_set_redraw_handler(clock->widget, PanelClock::panel_clock_redraw_handler);
 }
 
-static void
+void
 clock_func(struct toytimer *tt)
 {
 	PanelClock *clock = container_of(tt, PanelClock, timer);

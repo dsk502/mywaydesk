@@ -23,12 +23,12 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#include "desktop-shell/common.hpp"
-#include "desktop.cpp"
+#include "common.hpp"
+#include "desktop.hpp"
 
 int main(int argc, char *argv[])
 {
-	Desktop desktop = { 0 };
+	Desktop desktop = Desktop();
 	Output *output;
 	struct weston_config_section *s;
 	const char *config_file;

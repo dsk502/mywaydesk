@@ -23,6 +23,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+extern "C" {
 #include "config.h"
 
 #include <stdlib.h>
@@ -30,9 +31,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "shell.h"
 #include "input-method-unstable-v1-server-protocol.h"
 #include "shared/helpers.h"
+}
+
+#include "shell.hpp"
 
 struct input_panel_surface {
 	struct wl_resource *resource;

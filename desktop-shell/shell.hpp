@@ -155,7 +155,7 @@ public:
 	struct wl_listener lock_surface_listener;
 	struct weston_view *lock_view;
 
-	struct workspace workspace;
+	Workspace workspace;
 
 	struct {
 		struct wl_resource *binding;
@@ -198,93 +198,76 @@ public:
 
 	//Member functions
 	//void workspace_create();
+	bool shell_configuration();
+	void shell_fade(enum fade_type type);
+	void shell_fade_startup();
 };
-/*
-struct desktop_shell {
-	struct weston_compositor *compositor;
-	struct weston_desktop *desktop;
-	const struct weston_xwayland_surface_api *xwayland_surface_api;
 
-	struct wl_listener idle_listener;
-	struct wl_listener wake_listener;
-	struct wl_listener transform_listener;
-	struct wl_listener resized_listener;
-	struct wl_listener destroy_listener;
-	struct wl_listener show_input_panel_listener;
-	struct wl_listener hide_input_panel_listener;
-	struct wl_listener update_input_panel_listener;
-	struct wl_listener session_listener;
+class ShellSurface {
+public:
+	struct wl_signal destroy_signal;
 
-	struct weston_layer fullscreen_layer;
-	struct weston_layer panel_layer;
-	struct weston_layer background_layer;
-	struct weston_layer lock_layer;
-	struct weston_layer input_panel_layer;
+	struct weston_desktop_surface *desktop_surface;
+	struct weston_view *view;
+	struct weston_surface *wsurface_anim_fade;
+	struct weston_view *wview_anim_fade;
+	int32_t last_width, last_height;
 
-	struct wl_listener pointer_focus_listener;
-	struct weston_surface *grab_surface;
+	class DesktopShell *shell;
+
+	struct wl_list children_list;
+	struct wl_list children_link;
+
+	struct weston_coord_global saved_pos;
+	bool saved_position_valid;
+	bool saved_rotation_valid;
+	int unresponsive, grabbed;
+	uint32_t resize_edges;
+	uint32_t orientation;
 
 	struct {
-		struct wl_client *client;
-		struct wl_resource *desktop_shell;
-		struct wl_listener client_destroy_listener;
-
-		unsigned deathcount;
-		struct timespec deathstamp;
-	} child;
-
-	bool locked;
-	bool showing_input_panels;
-	bool prepare_event_sent;
-
-	struct text_backend *text_backend;
+		struct weston_transform transform;
+		struct weston_matrix rotation;
+	} rotation;
 
 	struct {
-		struct weston_surface *surface;
-		pixman_box32_t cursor_rectangle;
-	} text_input;
+		struct weston_curtain *black_view;
+	} fullscreen;
 
-	struct weston_surface *lock_surface;
-	struct wl_listener lock_surface_listener;
-	struct weston_view *lock_view;
+	struct weston_output *fullscreen_output;
+	struct weston_output *output;
+	struct wl_listener output_destroy_listener;
 
-	struct workspace workspace;
-
-	struct {
-		struct wl_resource *binding;
-		struct wl_list surfaces;
-	} input_panel;
+	struct surface_state {
+		bool fullscreen;
+		bool maximized;
+		bool lowered;
+	} state;
 
 	struct {
-		struct weston_curtain *curtain;
-		struct weston_view_animation *animation;
-		enum fade_type type;
-		struct wl_event_source *startup_timer;
-	} fade;
+		bool is_set;
+		struct weston_coord_global pos;
+	} xwayland;
 
-	bool allow_zap;
-	uint32_t binding_modifier;
-	enum animation_type win_animation_type;
-	enum animation_type win_close_animation_type;
-	enum animation_type startup_animation_type;
-	enum animation_type focus_animation_type;
+	int focus_count;
 
-	struct weston_layer minimized_layer;
+	bool destroying;
+	struct wl_list link;	// desktop_shell::shsurf_list
 
-	struct wl_listener seat_create_listener;
-	struct wl_listener output_create_listener;
-	struct wl_listener output_move_listener;
-	struct wl_list output_list;
-	struct wl_list seat_list;
-	struct wl_list shsurf_list;
+	//Constructor
+	ShellSurface();
+	~ShellSurface();
 
-	enum weston_desktop_shell_panel_position panel_position;
-	enum weston_desktop_shell_dock_position dock_position;	//Added
-
-	char *client;
-
-	struct timespec startup_time;
-};*/
+	//Methods
+	DesktopShell *shell_surface_get_shell();
+	void get_maximized_size(int32_t *width, int32_t *height);
+    void set_busy_cursor(weston_pointer *pointer);
+    void surface_rotate(weston_pointer *pointer);
+    bool shsurf_is_max_or_fullscreen();
+    void set_shsurf_size_maximized_or_fullscreen(
+        bool max_requested,
+        bool fullscreen_requested);
+};
 
 struct weston_output *
 get_default_output(struct weston_compositor *compositor);
@@ -292,14 +275,14 @@ get_default_output(struct weston_compositor *compositor);
 struct weston_view *
 get_default_view(struct weston_surface *surface);
 
-struct shell_surface *
+ShellSurface *
 get_shell_surface(struct weston_surface *surface);
 
-struct workspace *
-get_current_workspace(struct desktop_shell *shell);
+Workspace *
+get_current_workspace(DesktopShell *shell);
 
 void
-get_output_work_area(struct desktop_shell *shell,
+get_output_work_area(DesktopShell *shell,
 		     struct weston_output *output,
 		     pixman_rectangle32_t *area);
 

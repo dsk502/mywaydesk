@@ -55,6 +55,22 @@ struct focus_surface {
 	struct weston_curtain *curtain;
 };
 
+class Workspace {
+public:
+	struct weston_layer layer;
+
+	struct wl_list focus_list;
+	struct wl_listener seat_destroyed_listener;
+
+	struct focus_surface *fsurf_front;
+	struct focus_surface *fsurf_back;
+	struct weston_view_animation *focus_animation;
+
+	//Constructor and Deconstructor
+	Workspace(DesktopShell *shell);
+	~Workspace();
+};
+/*
 struct workspace {
 	struct weston_layer layer;
 
@@ -64,7 +80,7 @@ struct workspace {
 	struct focus_surface *fsurf_front;
 	struct focus_surface *fsurf_back;
 	struct weston_view_animation *focus_animation;
-};
+};*/
 
 struct shell_output {
 	struct desktop_shell  *shell;
@@ -91,7 +107,97 @@ struct shell_output {
 struct weston_desktop;
 
 class DesktopShell {
+public:
+	struct weston_compositor *compositor;
+	struct weston_desktop *desktop;
+	const struct weston_xwayland_surface_api *xwayland_surface_api;
 
+	struct wl_listener idle_listener;
+	struct wl_listener wake_listener;
+	struct wl_listener transform_listener;
+	struct wl_listener resized_listener;
+	struct wl_listener destroy_listener;
+	struct wl_listener show_input_panel_listener;
+	struct wl_listener hide_input_panel_listener;
+	struct wl_listener update_input_panel_listener;
+	struct wl_listener session_listener;
+
+	struct weston_layer fullscreen_layer;
+	struct weston_layer panel_layer;
+	struct weston_layer background_layer;
+	struct weston_layer lock_layer;
+	struct weston_layer input_panel_layer;
+
+	struct wl_listener pointer_focus_listener;
+	struct weston_surface *grab_surface;
+
+	struct {
+		struct wl_client *client;
+		struct wl_resource *desktop_shell;
+		struct wl_listener client_destroy_listener;
+
+		unsigned deathcount;
+		struct timespec deathstamp;
+	} child;
+
+	bool locked;
+	bool showing_input_panels;
+	bool prepare_event_sent;
+
+	struct text_backend *text_backend;
+
+	struct {
+		struct weston_surface *surface;
+		pixman_box32_t cursor_rectangle;
+	} text_input;
+
+	struct weston_surface *lock_surface;
+	struct wl_listener lock_surface_listener;
+	struct weston_view *lock_view;
+
+	struct workspace workspace;
+
+	struct {
+		struct wl_resource *binding;
+		struct wl_list surfaces;
+	} input_panel;
+
+	struct {
+		struct weston_curtain *curtain;
+		struct weston_view_animation *animation;
+		enum fade_type type;
+		struct wl_event_source *startup_timer;
+	} fade;
+
+	bool allow_zap;
+	uint32_t binding_modifier;
+	enum animation_type win_animation_type;
+	enum animation_type win_close_animation_type;
+	enum animation_type startup_animation_type;
+	enum animation_type focus_animation_type;
+
+	struct weston_layer minimized_layer;
+
+	struct wl_listener seat_create_listener;
+	struct wl_listener output_create_listener;
+	struct wl_listener output_move_listener;
+	struct wl_list output_list;
+	struct wl_list seat_list;
+	struct wl_list shsurf_list;
+
+	enum weston_desktop_shell_panel_position panel_position;
+	enum weston_desktop_shell_dock_position dock_position;	//Added
+
+	char *client;
+
+	struct timespec startup_time;
+
+	//Constructor and deconstructor
+	DesktopShell();
+	~DesktopShell();
+
+	//Member functions
+	//void workspace_create();
 };
 /*
 struct desktop_shell {

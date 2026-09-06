@@ -100,6 +100,79 @@ struct focus_state {
  *     (shsurf->parent != NULL) ⇒ !wl_list_is_empty(shsurf->children_link)
  */
 
+class ShellSurface {
+	
+	struct wl_signal destroy_signal;
+
+	struct weston_desktop_surface *desktop_surface;
+	struct weston_view *view;
+	struct weston_surface *wsurface_anim_fade;
+	struct weston_view *wview_anim_fade;
+	int32_t last_width, last_height;
+
+	class DesktopShell *shell;
+
+	struct wl_list children_list;
+	struct wl_list children_link;
+
+	struct weston_coord_global saved_pos;
+	bool saved_position_valid;
+	bool saved_rotation_valid;
+	int unresponsive, grabbed;
+	uint32_t resize_edges;
+	uint32_t orientation;
+
+	struct {
+		struct weston_transform transform;
+		struct weston_matrix rotation;
+	} rotation;
+
+	struct {
+		struct weston_curtain *black_view;
+	} fullscreen;
+
+	struct weston_output *fullscreen_output;
+	struct weston_output *output;
+	struct wl_listener output_destroy_listener;
+
+	struct surface_state {
+		bool fullscreen;
+		bool maximized;
+		bool lowered;
+	} state;
+
+	struct {
+		bool is_set;
+		struct weston_coord_global pos;
+	} xwayland;
+
+	int focus_count;
+
+	bool destroying;
+	struct wl_list link;	// desktop_shell::shsurf_list
+
+	//Constructor
+	ShellSurface();
+	~ShellSurface();
+};
+
+ShellSurface::ShellSurface()
+	:destroy_signal({0}), desktop_surface(nullptr), view(nullptr), wsurface_anim_fade(nullptr), wview_anim_fade(nullptr),
+	last_width(0), last_height(0), shell(nullptr), children_list({0}), children_link({0}),
+	saved_pos({0}), saved_position_valid(0), saved_rotation_valid(0), unresponsive(0), grabbed(0),
+	resize_edges(0), orientation(0), rotation({0}), fullscreen({0}),
+	fullscreen_output(nullptr), output(nullptr), output_destroy_listener({0}),
+	state({0}), xwayland({0}), focus_count(0), destroying(0), link({0})
+{
+	//Leave it empty
+}
+
+ShellSurface::~ShellSurface()
+{
+
+}
+
+/*
 struct shell_surface {
 	struct wl_signal destroy_signal;
 
@@ -148,8 +221,8 @@ struct shell_surface {
 	int focus_count;
 
 	bool destroying;
-	struct wl_list link;	/** desktop_shell::shsurf_list */
-};
+	struct wl_list link;	// desktop_shell::shsurf_list
+};*/
 
 struct shell_grab {
 	struct weston_pointer_grab grab;
@@ -214,6 +287,76 @@ struct tablet_tool_listener {
 	struct wl_listener base;
 	struct wl_listener removed_listener;
 };
+
+//Former workspace_create()
+Workspace::Workspace(DesktopShell *shell)
+	:layer({0}), focus_list({0}), seat_destroyed_listener({0}),
+	fsurf_front(nullptr), fsurf_back(nullptr), focus_animation(nullptr)
+{
+	//struct workspace *ws = &shell->workspace;
+
+	weston_layer_init(&this->layer, shell->compositor);
+	weston_layer_set_position(&this->layer, WESTON_LAYER_POSITION_NORMAL);
+
+	wl_list_init(&this->focus_list);
+	wl_list_init(&this->seat_destroyed_listener.link);
+	this->seat_destroyed_listener.notify = seat_destroyed;
+
+	if (shell->focus_animation_type != ANIMATION_NONE) {
+		struct weston_output *output =
+			weston_shell_utils_get_default_output(shell->compositor);
+
+		assert(shell->focus_animation_type == ANIMATION_DIM_LAYER);
+
+		this->fsurf_front = create_focus_surface(shell->compositor, output);
+		assert(this->fsurf_front);
+		this->fsurf_back = create_focus_surface(shell->compositor, output);
+		assert(this->fsurf_back);
+	} else {
+		this->fsurf_front = nullptr;
+		this->fsurf_back = nullptr;
+	}
+	this->focus_animation = nullptr;
+}
+
+Workspace::~Workspace()
+{
+	struct focus_state *state, *next;
+
+	wl_list_for_each_safe(state, next, &this->focus_list, link)
+		focus_state_destroy(state);
+
+	if (this->fsurf_front)
+		focus_surface_destroy(this->fsurf_front);
+	if (this->fsurf_back)
+		focus_surface_destroy(this->fsurf_back);
+
+	desktop_shell_destroy_layer(&this->layer);
+}
+
+DesktopShell::DesktopShell()
+	:compositor(nullptr), desktop(nullptr), xwayland_surface_api(nullptr),
+	idle_listener({0}), wake_listener({0}), transform_listener({0}), resized_listener({0}), destroy_listener({0}), show_input_panel_listener({0}), hide_input_panel_listener({0}), update_input_panel_listener({0}), session_listener({0}),
+	fullscreen_layer({0}), panel_layer({0}), background_layer({0}), lock_layer({0}), input_panel_layer({0}),
+	pointer_focus_listener({0}), grab_surface(nullptr), child({0}),
+	locked(0), showing_input_panels(0), prepare_event_sent(0),
+	text_backend(nullptr), text_input({0}), lock_surface(nullptr),
+	lock_surface_listener({0}), lock_view(nullptr), workspace({0}),
+	input_panel({0}), fade({0}), allow_zap(0), binding_modifier(0),
+	win_animation_type(static_cast<animation_type>(0)), win_close_animation_type(static_cast<animation_type>(0)), startup_animation_type(static_cast<animation_type>(0)), focus_animation_type(static_cast<animation_type>(0)),
+	minimized_layer({0}),
+	seat_create_listener({0}), output_create_listener({0}), output_move_listener({0}),
+	output_list({0}), seat_list({0}), shsurf_list({0}),
+	panel_position(static_cast<weston_desktop_shell_panel_position>(0)),dock_position(static_cast<weston_desktop_shell_dock_position>(0)),
+	client(nullptr), startup_time(0)
+{
+	//Leave empty here
+}
+
+DesktopShell::~DesktopShell()
+{
+
+}
 
 static struct desktop_shell *
 shell_surface_get_shell(struct shell_surface *shsurf);
@@ -849,6 +992,7 @@ drop_focus_state(struct desktop_shell *shell, struct workspace *ws,
 static void
 desktop_shell_destroy_layer(struct weston_layer *layer);
 
+/*
 static void
 workspace_destroy(struct workspace *ws)
 {
@@ -863,7 +1007,7 @@ workspace_destroy(struct workspace *ws)
 		focus_surface_destroy(ws->fsurf_back);
 
 	desktop_shell_destroy_layer(&ws->layer);
-}
+}*/
 
 static void
 seat_destroyed(struct wl_listener *listener, void *data)
@@ -879,6 +1023,7 @@ seat_destroyed(struct wl_listener *listener, void *data)
 			wl_list_remove(&state->link);
 }
 
+/*
 static void
 workspace_create(struct desktop_shell *shell)
 {
@@ -906,7 +1051,7 @@ workspace_create(struct desktop_shell *shell)
 		ws->fsurf_back = NULL;
 	}
 	ws->focus_animation = NULL;
-}
+}*/
 
 struct workspace *
 get_current_workspace(struct desktop_shell *shell)
@@ -5050,11 +5195,13 @@ wet_shell_init(struct weston_compositor *ec,
 	       int *argc, char *argv[])
 {
 	struct weston_seat *seat;
-	struct desktop_shell *shell;
+	//struct desktop_shell *shell;
+	DesktopShell *shell;
 	struct wl_event_loop *loop;
 
-	shell = zalloc(sizeof *shell);
-	if (shell == NULL)
+	//shell = zalloc(sizeof *shell);
+	shell = new DesktopShell();
+	if (shell == nullptr)
 		return -1;
 
 	shell->compositor = ec;
@@ -5062,7 +5209,8 @@ wet_shell_init(struct weston_compositor *ec,
 	if (!weston_compositor_add_destroy_listener_once(ec,
 							 &shell->destroy_listener,
 							 shell_destroy)) {
-		free(shell);
+		//free(shell);
+		delete shell;
 		return 0;
 	}
 
@@ -5107,7 +5255,8 @@ wet_shell_init(struct weston_compositor *ec,
 	if (!shell_configuration(shell))
 		return -1;
 
-	workspace_create(shell);
+	//workspace_create(shell);
+	shell->workspace = new Workspace(shell);
 
 	shell->desktop = weston_desktop_create(ec, &shell_desktop_api, shell);
 	if (!shell->desktop)

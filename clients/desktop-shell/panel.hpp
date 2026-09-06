@@ -23,8 +23,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef _DS_PANEL_HPP_	//desktop-shell/panel.cpp
-#define _DS_PANEL_HPP_
+#ifndef _CL_DS_PANEL_HPP_	//clients/desktop-shell/panel.cpp
+#define _CL_DS_PANEL_HPP_
 
 #include "output.hpp"
 #include "desktop.hpp"

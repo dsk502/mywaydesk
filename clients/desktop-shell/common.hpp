@@ -26,8 +26,8 @@
 //This file contains the minimal common functions for the components of the desktop-shell folder to use.
 //These functions should not be dependent on other components in this folder (like Desktop or Output).
 
-#ifndef _DS_COMMON_HPP_ //desktop-shell/common.hpp
-#define _DS_COMMON_HPP_
+#ifndef _CL_DS_COMMON_HPP_ //clients/desktop-shell/common.hpp
+#define _CL_DS_COMMON_HPP_
 
 extern "C" {
 #include "config.h"

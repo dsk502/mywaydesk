@@ -23,8 +23,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef _DS_OUTPUT_HPP_ //desktop-shell/output.cpp
-#define _DS_OUTPUT_HPP_
+#ifndef _CL_DS_OUTPUT_HPP_ //clients/desktop-shell/output.cpp
+#define _CL_DS_OUTPUT_HPP_
 
 #include "common.hpp"
 #include "desktop.hpp"

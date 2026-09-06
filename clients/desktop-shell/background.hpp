@@ -23,8 +23,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef _DS_BACKGROUND_HPP_	//desktop-shell/background.hpp
-#define _DS_BACKGROUND_HPP_
+#ifndef _CL_DS_BACKGROUND_HPP_	//clients/desktop-shell/background.hpp
+#define _CL_DS_BACKGROUND_HPP_
 
 #include "output.hpp"
 #include "desktop.hpp"

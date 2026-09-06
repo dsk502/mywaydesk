@@ -23,8 +23,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef _DS_UNLOCKDIALOG_HPP_	//desktop-shell/unlockdialog.hpp
-#define _DS_UNLOCKDIALOG_HPP_
+#ifndef _CL_DS_UNLOCKDIALOG_HPP_	//clients/desktop-shell/unlockdialog.hpp
+#define _CL_DS_UNLOCKDIALOG_HPP_
 
 #include "common.hpp"
 #include "desktop.hpp"

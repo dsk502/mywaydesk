@@ -23,8 +23,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef _DS_DOCK_HPP_	//desktop-shell/dock.hpp
-#define _DS_DOCK_HPP_
+#ifndef _CL_DS_DOCK_HPP_	//clients/desktop-shell/dock.hpp
+#define _CL_DS_DOCK_HPP_
 
 #include "desktop.hpp"
 #include "output.hpp"

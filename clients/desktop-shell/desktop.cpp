@@ -36,7 +36,19 @@ Desktop::Desktop()
 
 Desktop::~Desktop()
 {
-
+	//Free grab_window and grab_widget
+	this->grab_surface_destroy();
+	//Clean outputs
+	this->desktop_destroy_outputs();
+	//Delete unlock_dialog
+	if (this->unlock_dialog)
+		delete (this->unlock_dialog);
+	//Free shell
+	weston_desktop_shell_destroy(this->shell);
+	//Free display
+	display_destroy(this->display);
+	//Free config
+	weston_config_destroy(this->config);
 }
 
 int

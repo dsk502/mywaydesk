@@ -82,6 +82,8 @@ int main(int argc, char *argv[])
 	display_run(desktop.display);
 
 	/* Cleanup */
+	/* The code has been moved to Desktop class.
+	Desktop instance is on stack, so nothing to do here.
 	desktop.grab_surface_destroy();
 	desktop.desktop_destroy_outputs();
 	if (desktop.unlock_dialog)
@@ -89,6 +91,7 @@ int main(int argc, char *argv[])
 	weston_desktop_shell_destroy(desktop.shell);
 	display_destroy(desktop.display);
 	weston_config_destroy(desktop.config);
+	*/
 
 	return 0;
 }

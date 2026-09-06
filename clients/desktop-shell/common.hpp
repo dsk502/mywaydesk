@@ -29,6 +29,7 @@
 #ifndef _DS_COMMON_HPP_ //desktop-shell/common.hpp
 #define _DS_COMMON_HPP_
 
+extern "C" {
 #include "config.h"
 
 #include <stdint.h>
@@ -62,6 +63,7 @@
 
 #include "tablet-unstable-v2-client-protocol.h"
 #include "weston-desktop-shell-client-protocol.h"
+}
 
 #define DEFAULT_CLOCK_FORMAT CLOCK_FORMAT_MINUTES
 #define DEFAULT_SPACING 10

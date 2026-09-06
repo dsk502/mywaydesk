@@ -28,13 +28,16 @@
 /*static struct panel *
 panel_create(struct desktop *desktop, struct output *output)*/
 Panel::Panel(Desktop *desktop, Output *output)
+	:base({0}), owner(nullptr), window(), widget(), launcher_list({0}), clock(nullptr), 
+	painted(0), panel_position(static_cast<weston_desktop_shell_panel_position>(0)), 
+	clock_format(static_cast<enum clock_format>(0)), color(0)
 {
 	//struct panel *panel;
 	struct weston_config_section *s;
 
 	//panel = xzalloc(sizeof *panel);
-
 	this->owner = output;
+
 	//Set base configure function for panel
 	this->base.configure = panel_configure;
 	this->window = window_create_custom(desktop->display);
@@ -66,7 +69,6 @@ Panel::Panel(Desktop *desktop, Output *output)
 	//Todo: check the invoke
 	panel_add_launchers(desktop);
 
-	//return panel;
 }
 
 Panel::~Panel()
@@ -85,7 +87,6 @@ Panel::~Panel()
 	widget_destroy(this->widget);
 	window_destroy(this->window);
 
-	//free(this);
 }
 
 void
@@ -411,7 +412,6 @@ PanelLauncher::~PanelLauncher()
 	widget_destroy(this->widget);
 	wl_list_remove(&this->link);
 
-	free(this);
 }
 
 void

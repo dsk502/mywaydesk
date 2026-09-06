@@ -25,6 +25,20 @@
 
 #include "desktop.hpp"
 
+Desktop::Desktop()
+	:display(nullptr), shell(nullptr), unlock_dialog(nullptr), unlock_task({0}), outputs({0}), want_panel(0),
+	panel_position(static_cast<weston_desktop_shell_panel_position>(0)), dock_position(static_cast<weston_desktop_shell_dock_position>(0)),
+	clock_format(static_cast<enum clock_format>(0)), grab_window(nullptr), grab_widget(nullptr), config(nullptr), locking(0),
+	grab_cursor(static_cast<cursor_type>(0)), painted(0)
+{
+	//It is empty here
+}
+
+Desktop::~Desktop()
+{
+
+}
+
 int
 Desktop::is_desktop_painted()
 {
@@ -123,27 +137,6 @@ Desktop::grab_surface_create()
 
 	widget_set_enter_handler(this->grab_widget,
 				 grab_surface_enter_handler);
-}
-
-void
-Desktop::create_output(uint32_t id)
-{
-	Output *output = new Output();
-
-	if (!output)
-		return;
-
-	output->output = static_cast<wl_output *>(display_bind(this->display, id, &wl_output_interface, 2));
-	output->server_output_id = id;
-
-	wl_output_add_listener(output->output, &output_listener, output);
-
-	wl_list_insert(&this->outputs, &output->link);
-
-	/* On start up we may process an output global before the shell global
-	 * in which case we can't create the panel and background just yet */
-	if (this->shell)
-		output->output_init(this);
 }
 
 void
@@ -332,7 +325,7 @@ global_handler(struct display *display, uint32_t id,
 						  &listener,
 						  desktop);
 	} else if (!strcmp(interface, "wl_output")) {
-		desktop->create_output(id);
+		new Output(desktop, id);
 	}
 }
 

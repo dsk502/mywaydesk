@@ -32,6 +32,26 @@ const struct wl_output_listener output_listener = {
 	output_handle_scale
 };
 
+Output::Output(Desktop *desktop, uint32_t id)
+	:output(nullptr), server_output_id(0), link({0}), 
+	x(0), y(0), panel(nullptr), dock(nullptr), background(nullptr)
+{
+	//if (!output)
+		//return;
+
+	this->output = static_cast<wl_output *>(display_bind(desktop->display, id, &wl_output_interface, 2));
+	this->server_output_id = id;
+
+	wl_output_add_listener(this->output, &output_listener, this);
+
+	wl_list_insert(&desktop->outputs, &this->link);
+
+	/* On start up we may process an output global before the shell global
+	 * in which case we can't create the panel and background just yet */
+	if (desktop->shell)
+		this->output_init(desktop);
+}
+
 void
 Output::output_init(Desktop *desktop) {
 	struct wl_surface *surface;

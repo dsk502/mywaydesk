@@ -26,6 +26,8 @@
 #include "background.hpp"
 
 Background::Background(Desktop *desktop, Output *output)
+	:base({0}), owner(nullptr), window(nullptr), widget(nullptr), 
+	painted(0), image(nullptr), type(0), color(0)
 {
 	//struct background *background;
 	struct weston_config_section *s;

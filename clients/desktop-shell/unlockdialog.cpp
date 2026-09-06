@@ -26,6 +26,7 @@
 #include "unlockdialog.hpp"
 
 UnlockDialog::UnlockDialog(Desktop *desktop)
+	:window(nullptr), widget(nullptr), button(nullptr), button_focused(0), closing(0), desktop(nullptr)
 {
 	struct display *display = desktop->display;
 	//struct unlock_dialog *dialog;

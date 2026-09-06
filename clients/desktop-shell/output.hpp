@@ -48,7 +48,7 @@ public:
 	Dock *dock;
 	Background *background;
 
-	Output() {};
+	Output(Desktop *desktop, uint32_t id);
 	void output_init(Desktop *desktop);
 	~Output();
 };

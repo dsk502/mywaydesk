@@ -56,6 +56,11 @@ public:
 
 	int painted;
 
+	//Constructor and deconstructor
+	//Desktop is the root of the instance tree. The constructor is an all-zero constructor.
+	Desktop();
+	~Desktop();
+
 	int is_desktop_painted();
 	//void check_desktop_ready(struct window *window);
 	void parse_panel_position(struct weston_config_section *s);
@@ -65,7 +70,6 @@ public:
 	void grab_surface_destroy();
 	void grab_surface_create();
 
-	void create_output(uint32_t id);
 	void output_remove(Output *output);
 	void desktop_destroy_outputs();
 };

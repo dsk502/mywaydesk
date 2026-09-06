@@ -30,6 +30,8 @@
 dock_create(struct desktop* desktop, struct output* output)*/
 //Todo: fix the constructor
 Dock::Dock(Desktop *desktop, Output *output)
+	:base({0}), owner(nullptr), launcher_list({0}), window(nullptr), widget(nullptr),
+	dock_position(static_cast<weston_desktop_shell_dock_position>(0)), painted(0), color(0)
 {
 	struct weston_config_section *s;
 

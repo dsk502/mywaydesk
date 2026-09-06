@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
 	struct weston_config_section *s;
 	const char *config_file;
 
-	desktop.unlock_task.run = unlock_dialog_finish;
+	desktop.unlock_task.run = UnlockDialog::unlock_dialog_finish;
 	wl_list_init(&desktop.outputs);
 
 	//Read the config file

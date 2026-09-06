@@ -71,7 +71,7 @@ UnlockDialog::~UnlockDialog()
 	//free(dialog);
 }
 
-void unlock_dialog_redraw_handler(struct widget *widget, void *data)
+void UnlockDialog::unlock_dialog_redraw_handler(struct widget *widget, void *data)
 {
 	UnlockDialog *dialog = static_cast<UnlockDialog *>(data);
 	struct rectangle allocation;
@@ -117,7 +117,7 @@ void unlock_dialog_redraw_handler(struct widget *widget, void *data)
 	cairo_surface_destroy(surface);
 }
 
-void unlock_dialog_button_handler(struct widget *widget,
+void UnlockDialog::unlock_dialog_button_handler(struct widget *widget,
 			     struct input *input, uint32_t time,
 			     uint32_t button,
 			     enum wl_pointer_button_state state, void *data)
@@ -134,7 +134,7 @@ void unlock_dialog_button_handler(struct widget *widget,
 	}
 }
 
-void unlock_dialog_touch_down_handler(struct widget *widget, struct input *input,
+void UnlockDialog::unlock_dialog_touch_down_handler(struct widget *widget, struct input *input,
 		   uint32_t serial, uint32_t time, int32_t id,
 		   float x, float y, void *data)
 {
@@ -144,7 +144,7 @@ void unlock_dialog_touch_down_handler(struct widget *widget, struct input *input
 	widget_schedule_redraw(widget);
 }
 
-void unlock_dialog_touch_up_handler(struct widget *widget, struct input *input,
+void UnlockDialog::unlock_dialog_touch_up_handler(struct widget *widget, struct input *input,
 				uint32_t serial, uint32_t time, int32_t id,
 				void *data)
 {
@@ -157,13 +157,13 @@ void unlock_dialog_touch_up_handler(struct widget *widget, struct input *input,
 	dialog->closing = 1;
 }
 
-void unlock_dialog_keyboard_focus_handler(struct window *window,
+void UnlockDialog::unlock_dialog_keyboard_focus_handler(struct window *window,
 				     struct input *device, void *data)
 {
 	window_schedule_redraw(window);
 }
 
-int unlock_dialog_widget_enter_handler(struct widget *widget,
+int UnlockDialog::unlock_dialog_widget_enter_handler(struct widget *widget,
 				   struct input *input,
 				   float x, float y, void *data)
 {
@@ -176,7 +176,7 @@ int unlock_dialog_widget_enter_handler(struct widget *widget,
 }
 
 void
-unlock_dialog_widget_leave_handler(struct widget *widget,
+UnlockDialog::unlock_dialog_widget_leave_handler(struct widget *widget,
 				   struct input *input, void *data)
 {
 	UnlockDialog *dialog = static_cast<UnlockDialog *>(data);
@@ -186,7 +186,7 @@ unlock_dialog_widget_leave_handler(struct widget *widget,
 }
 
 void
-unlock_dialog_finish(struct task *task, uint32_t events)
+UnlockDialog::unlock_dialog_finish(struct task *task, uint32_t events)
 {
 	Desktop *desktop =
 		container_of(task, Desktop, unlock_task);

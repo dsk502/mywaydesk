@@ -81,7 +81,6 @@ Dock::~Dock()
 	widget_destroy(this->widget);
 	window_destroy(this->window);
 
-	//free(dock);
 }
 
 void
@@ -167,6 +166,12 @@ Dock::dock_resize_handler(struct widget *widget,
 
 }
 
+DockLauncher::DockLauncher()
+	:widget(nullptr), dock(nullptr), icon(nullptr), focused(0), pressed(0), 
+	path(nullptr), displayname(nullptr), link({0}), env({0}), argp(nullptr), envp(nullptr)
+{
+	//Keep empty here
+}
 /*
 static void
 dock_destroy_launcher(struct dock_launcher *launcher)*/

@@ -331,6 +331,12 @@ Panel::panel_configure(void *data,
 	window_schedule_resize(panel->window, width, height);
 }
 
+PanelClock::PanelClock()
+	:widget(nullptr), panel(nullptr), timer({0}), format_string(nullptr), refresh_timer(0)
+{
+	//Keep empty here
+}
+
 int
 PanelClock::clock_timer_reset()
 {
@@ -396,6 +402,13 @@ PanelClock::panel_clock_redraw_handler(struct widget *widget, void *data)
 	cairo_set_source_rgba(cr, 1, 1, 1, 0.85);
 	cairo_show_text(cr, string);
 	cairo_destroy(cr);
+}
+
+PanelLauncher::PanelLauncher()
+	:widget(nullptr), panel(nullptr), icon(nullptr), focused(0), pressed(0),
+	path(nullptr), displayname(nullptr), link({0}), env({0}), argp(nullptr), envp(nullptr)
+{
+	//Keep empty here
 }
 
 /*void

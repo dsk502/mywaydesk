@@ -76,6 +76,7 @@ public:
 	char * const *argp;
 	char * const *envp;
 
+	DockLauncher();
 	~DockLauncher();
 	static int dock_launcher_enter_handler(struct widget *widget, struct input *input, float x, float y, void *data);
 

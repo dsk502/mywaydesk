@@ -80,7 +80,6 @@ Background::~Background()
 	window_destroy(this->window);
 
 	free(this->image);
-	//free(this);
 }
 
 void

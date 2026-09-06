@@ -70,7 +70,6 @@ int main(int argc, char *argv[])
 	}
 	wl_list_for_each(output, &desktop.outputs, link)
 		if (!output->background) {
-			output = new Output();
 			output->output_init(&desktop);
 			//output_init(output, &desktop);	//output_init() -> panel_create()
 		}

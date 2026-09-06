@@ -74,6 +74,7 @@ public:
 	char *format_string;
 	time_t refresh_timer;
 
+	PanelClock();
 	~PanelClock();
 
 	int clock_timer_reset();
@@ -96,7 +97,9 @@ public:
 	char * const *envp;
 
 	//Methods
+	PanelLauncher();
 	~PanelLauncher();
+
 	void panel_launcher_activate();
 
 	//Handlers (callbacks)

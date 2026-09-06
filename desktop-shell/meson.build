@@ -2,7 +2,7 @@ if get_option('shell-desktop')
 	config_h.set_quoted('WESTON_SHELL_CLIENT', get_option('desktop-shell-client-default'))
 
 	srcs_shell_desktop = [
-		'shell.c',
+		'shell.cpp',
 		'input-panel.c',
 		weston_desktop_shell_server_protocol_h,
 		weston_desktop_shell_protocol_c,

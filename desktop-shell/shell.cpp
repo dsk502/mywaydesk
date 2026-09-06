@@ -24,6 +24,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+extern "C" {
 #include "config.h"
 
 #include <stdlib.h>
@@ -37,7 +38,6 @@
 #include <math.h>
 #include <sys/types.h>
 
-#include "shell.h"
 #include "frontend/weston.h"
 #include "weston-desktop-shell-server-protocol.h"
 #include <libweston/config-parser.h>
@@ -45,6 +45,9 @@
 #include "shared/timespec-util.h"
 #include <libweston/shell-utils.h>
 #include <libweston/desktop.h>
+}
+
+#include "shell.hpp"
 
 #define DEFAULT_NUM_WORKSPACES 1
 #define DEFAULT_WORKSPACE_CHANGE_ANIMATION_LENGTH 200

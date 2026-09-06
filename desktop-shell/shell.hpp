@@ -24,6 +24,10 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+#ifndef _DS_SHELL_HPP_	//desktop-shell/shell.hpp
+#define _DS_SHELL_HPP_
+
+extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
@@ -32,6 +36,7 @@
 #include <libweston/xwayland-api.h>
 
 #include "weston-desktop-shell-server-protocol.h"
+}
 
 enum animation_type {
 	ANIMATION_NONE,
@@ -84,6 +89,11 @@ struct shell_output {
 };
 
 struct weston_desktop;
+
+class DesktopShell {
+
+};
+/*
 struct desktop_shell {
 	struct weston_compositor *compositor;
 	struct weston_desktop *desktop;
@@ -168,7 +178,7 @@ struct desktop_shell {
 	char *client;
 
 	struct timespec startup_time;
-};
+};*/
 
 struct weston_output *
 get_default_output(struct weston_compositor *compositor);
@@ -207,3 +217,5 @@ void
 shell_for_each_layer(struct desktop_shell *shell,
 		     shell_for_each_layer_func_t func,
 		     void *data);
+
+#endif

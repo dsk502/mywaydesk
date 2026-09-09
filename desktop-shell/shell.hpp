@@ -69,6 +69,70 @@ enum fade_type {
 	FADE_OUT
 };
 
+struct shell_grab {
+	struct weston_pointer_grab grab;
+	ShellSurface *shsurf;
+	struct wl_listener shsurf_destroy_listener;
+};
+
+struct shell_touch_grab {
+	struct weston_touch_grab grab;
+	ShellSurface *shsurf;
+	struct wl_listener shsurf_destroy_listener;
+	struct weston_touch *touch;
+};
+
+struct shell_tablet_tool_grab {
+	struct weston_tablet_tool_grab grab;
+	ShellSurface *shsurf;
+	struct wl_listener shsurf_destroy_listener;
+	struct weston_tablet_tool *tool;
+};
+
+struct weston_move_grab {
+	struct shell_grab base;
+	struct weston_coord_global delta;
+	bool client_initiated;
+};
+
+struct weston_touch_move_grab {
+	struct shell_touch_grab base;
+	int active;
+	struct weston_coord_global delta;
+};
+
+struct weston_tablet_tool_move_grab {
+	struct shell_tablet_tool_grab base;
+	wl_fixed_t dx, dy;
+};
+
+struct rotate_grab {
+	struct shell_grab base;
+	struct weston_matrix rotation;
+	struct {
+		float x;
+		float y;
+	} center;
+};
+
+struct shell_seat {
+	struct weston_seat *seat;
+	struct wl_listener seat_destroy_listener;
+	struct weston_surface *focused_surface;
+
+	struct wl_listener caps_changed_listener;
+	struct wl_listener pointer_focus_listener;
+	struct wl_listener keyboard_focus_listener;
+	struct wl_listener tablet_tool_added_listener;
+
+	struct wl_list link;	/** shell::seat_list */
+};
+
+struct tablet_tool_listener {
+	struct wl_listener base;
+	struct wl_listener removed_listener;
+};
+
 struct focus_surface {
 	struct weston_curtain *curtain;
 };
@@ -211,7 +275,12 @@ public:
 	//void workspace_create();
 	bool shell_configuration();
 	void shell_fade(enum fade_type type);
+	void shell_fade_init();
 	void shell_fade_startup();
+
+	void lock();
+	void unlock();
+	void resume_desktop();
 };
 
 class ShellSurface {
@@ -283,6 +352,8 @@ public:
 	void shell_surface_update_child_surface_layers();
 	void shell_surface_update_layer();
 	void shell_surface_set_output(struct weston_output *output);
+
+	bool has_keyboard_focused_child();
 };
 
 struct weston_output *

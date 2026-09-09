@@ -146,6 +146,14 @@ ShellSurface::shell_surface_deactivate()
 		sync_surface_activated_state(this);
 }
 
+bool
+ShellSurface::shsurf_is_max_or_fullscreen()
+{
+	struct weston_desktop_surface *dsurface = this->desktop_surface;
+	return weston_desktop_surface_get_maximized(dsurface) ||
+		weston_desktop_surface_get_fullscreen(dsurface);
+}
+
 /* The surface will be inserted into the list immediately after the link
  * returned by this function (i.e. will be stacked immediately above the
  * returned link). */
@@ -186,7 +194,7 @@ ShellSurface::shell_surface_update_layer()
 	assert(new_layer_link);
 
 	weston_view_move_to_layer(this->view, new_layer_link);
-	shell_surface_update_child_surface_layers(this);
+	shell_surface_update_child_surface_layers();
 }
 
 void
@@ -215,4 +223,61 @@ ShellSurface::shell_surface_set_output(struct weston_output *output)
 	this->output_destroy_listener.notify = notify_output_destroy;
 	wl_signal_add(&this->output->destroy_signal,
 		      &this->output_destroy_listener);
+}
+
+bool
+ShellSurface::has_keyboard_focused_child()
+{
+	bool has_keyboard_focus = false;
+
+	if (this->focus_count > 0)
+		return true;
+
+	weston_desktop_surface_foreach_child(this->desktop_surface,
+					     has_keyboard_focused_child_callback,
+					     &has_keyboard_focus);
+
+	return has_keyboard_focus;
+}
+
+/*
+ * Tool methods
+ */
+
+static void
+sync_surface_activated_state(ShellSurface *shsurf)
+{
+	struct weston_desktop_surface *surface = shsurf->desktop_surface;
+	struct weston_desktop_surface *parent;
+	struct weston_surface *parent_surface;
+
+	parent = weston_desktop_surface_get_parent(surface);
+	if (parent) {
+		parent_surface = weston_desktop_surface_get_surface(parent);
+		sync_surface_activated_state(get_shell_surface(parent_surface));
+		return;
+	}
+
+	if (shsurf->has_keyboard_focused_child())
+		weston_desktop_surface_set_activated(surface, true);
+	else
+		weston_desktop_surface_set_activated(surface, false);
+}
+
+static void
+has_keyboard_focused_child_callback(struct weston_desktop_surface *surface,
+				    void *user_data)
+{
+	struct weston_surface *es = weston_desktop_surface_get_surface(surface);
+	ShellSurface *shsurf = get_shell_surface(es);
+	bool *has_keyboard_focus = user_data;
+
+	if (shsurf->focus_count > 0) {
+		*has_keyboard_focus = true;
+		return;
+	}
+
+	weston_desktop_surface_foreach_child(shsurf->desktop_surface,
+					     has_keyboard_focused_child_callback,
+					     &has_keyboard_focus);
 }

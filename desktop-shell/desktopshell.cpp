@@ -137,3 +137,256 @@ DesktopShell::shell_fade(enum fade_type type)
 					shell_fade_done, this);
 	}
 }
+
+void
+DesktopShell::shell_fade_init()
+{
+	/* Make compositor output all black, and wait for the desktop-shell
+	 * client to signal it is ready, then fade in. The timer triggers a
+	 * fade-in, in case the desktop-shell client takes too long.
+	 */
+
+	struct wl_event_loop *loop;
+
+	if (this->startup_animation_type == ANIMATION_NONE)
+		return;
+
+	if (this->fade.curtain != NULL) {
+		weston_log("%s: warning: fade surface already exists\n",
+			   __func__);
+		return;
+	}
+
+	this->fade.curtain = shell_fade_create_view(this);
+	if (!this->fade.curtain)
+		return;
+
+	weston_view_update_transform(this->fade.curtain->view);
+	weston_surface_damage(this->fade.curtain->view->surface);
+
+	loop = wl_display_get_event_loop(this->compositor->wl_display);
+	this->fade.startup_timer =
+		wl_event_loop_add_timer(loop, fade_startup_timeout, this);
+	wl_event_source_timer_update(this->fade.startup_timer, 15000);
+}
+
+void
+DesktopShell::shell_fade_startup()
+{
+	struct wl_event_loop *loop;
+	bool has_fade = false;
+
+	if (!this->fade.startup_timer)
+		return;
+
+	wl_event_source_remove(this->fade.startup_timer);
+	this->fade.startup_timer = NULL;
+	has_fade = true;
+
+	if (has_fade) {
+		loop = wl_display_get_event_loop(this->compositor->wl_display);
+		wl_event_loop_add_idle(loop, do_shell_fade_startup, this);
+	}
+}
+
+void
+DesktopShell::lock()
+{
+	Workspace *ws = get_current_workspace(this);
+
+	if (this->locked) {
+		weston_compositor_sleep(this->compositor);
+		return;
+	}
+
+	this->locked = true;
+
+	/* Hide all surfaces by removing the fullscreen, panel and
+	 * toplevel layers.  This way nothing else can show or receive
+	 * input events while we are locked. */
+
+	weston_layer_unset_position(&this->panel_layer);
+	weston_layer_unset_position(&this->fullscreen_layer);
+	if (this->showing_input_panels)
+		weston_layer_unset_position(&this->input_panel_layer);
+	weston_layer_unset_position(&ws->layer);
+
+	weston_layer_set_position(&this->lock_layer,
+				  WESTON_LAYER_POSITION_LOCK);
+
+	weston_compositor_sleep(this->compositor);
+
+	/* Remove the keyboard focus on all seats. This will be
+	 * restored to the Workspace's saved state via
+	 * restore_focus_state when the compositor is unlocked */
+	unfocus_all_seats(this);
+
+	/* TODO: disable bindings that should not work while locked. */
+
+	/* All this must be undone in resume_desktop(). */
+}
+
+void
+DesktopShell::unlock()
+{
+	struct wl_resource *shell_resource;
+
+	if (!this->locked || this->lock_surface) {
+		shell_fade(FADE_IN);
+		return;
+	}
+
+	/* If desktop-shell client has gone away, unlock immediately. */
+	if (!this->child.desktop_shell) {
+		resume_desktop();
+		return;
+	}
+
+	if (this->prepare_event_sent)
+		return;
+
+	shell_resource = this->child.desktop_shell;
+	weston_desktop_shell_send_prepare_lock_surface(shell_resource);
+	this->prepare_event_sent = true;
+}
+
+void
+DesktopShell::resume_desktop()
+{
+	Workspace *ws = get_current_workspace(this);
+
+	weston_layer_unset_position(&this->lock_layer);
+
+	if (this->showing_input_panels)
+		weston_layer_set_position(&this->input_panel_layer,
+					  WESTON_LAYER_POSITION_TOP_UI);
+	weston_layer_set_position(&this->fullscreen_layer,
+				  WESTON_LAYER_POSITION_FULLSCREEN);
+	weston_layer_set_position(&this->panel_layer,
+				  WESTON_LAYER_POSITION_UI);
+	weston_layer_set_position(&ws->layer, WESTON_LAYER_POSITION_NORMAL);
+
+	restore_focus_state(this, get_current_workspace(this));
+
+	this->locked = false;
+	shell_fade(FADE_IN);
+	weston_compositor_damage_all(this->compositor);
+}
+
+/*
+ * Tool methods
+ */
+
+static void
+do_shell_fade_startup(void *data)
+{
+	DesktopShell *shell = static_cast<DesktopShell *>(data);
+
+	assert(shell->startup_animation_type == ANIMATION_FADE ||
+	       shell->startup_animation_type == ANIMATION_NONE);
+
+	if (shell->startup_animation_type == ANIMATION_FADE)
+		shell->shell_fade(FADE_IN);
+}
+
+static int
+fade_startup_timeout(void *data)
+{
+	DesktopShell *shell = static_cast<DesktopShell *>(data);
+
+	shell->shell_fade_startup();
+	return 0;
+}
+
+static void
+shell_fade_done(struct weston_view_animation *animation, void *data)
+{
+	DesktopShell *shell = static_cast<DesktopShell *>(data);
+
+	shell->fade.animation = NULL;
+	switch (shell->fade.type) {
+	case FADE_IN:
+		weston_shell_utils_curtain_destroy(shell->fade.curtain);
+		shell->fade.curtain = NULL;
+		break;
+	case FADE_OUT:
+		shell->lock();
+		break;
+	default:
+		break;
+	}
+}
+
+static int
+fade_surface_get_label(struct weston_surface *surface,
+		       char *buf, size_t len)
+{
+	return snprintf(buf, len, "desktop shell fade surface");
+}
+
+static struct weston_curtain *
+shell_fade_create_view(DesktopShell *shell)
+{
+	struct weston_compositor *compositor = shell->compositor;
+	ShellOutput *shell_output;
+	struct weston_curtain_params curtain_params = {
+		.get_label = fade_surface_get_label,
+		.surface_committed = black_surface_committed,
+		.surface_private = shell,
+		.r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0,
+		.capture_input = true,
+	};
+	struct weston_curtain *curtain;
+	bool first = true;
+	int x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+
+	wl_list_for_each(shell_output, &shell->output_list, link) {
+		struct weston_output *op = shell_output->output;
+
+		if (first) {
+			first = false;
+			x1 = op->pos.c.x;
+			y1 = op->pos.c.y;
+			x2 = op->pos.c.x + op->width;
+			y2 = op->pos.c.y + op->height;
+			continue;
+		}
+
+		x1 = MIN(x1, op->pos.c.x);
+		y1 = MIN(y1, op->pos.c.y);
+		x2 = MAX(x2, op->pos.c.x + op->width);
+		y2 = MAX(y2, op->pos.c.y + op->height);
+	}
+	curtain_params.pos.c.x = x1;
+	curtain_params.pos.c.y = y1;
+	curtain_params.width = x2 - x1;
+	curtain_params.height = y2 - y1;
+	curtain = weston_shell_utils_curtain_create(compositor, &curtain_params);
+	assert(curtain);
+
+	weston_view_move_to_layer(curtain->view, &compositor->fade_layer.view_list);
+
+	return curtain;
+}
+
+static enum animation_type
+get_animation_type(char *animation)
+{
+	if (!animation)
+		return ANIMATION_NONE;
+
+	if (!strcmp("zoom", animation))
+		return ANIMATION_ZOOM;
+	else if (!strcmp("fade", animation))
+		return ANIMATION_FADE;
+	else if (!strcmp("dim-layer", animation))
+		return ANIMATION_DIM_LAYER;
+	else
+		return ANIMATION_NONE;
+}
+
+static void
+black_surface_committed(struct weston_surface *es,
+			struct weston_coord_surface new_origin)
+{
+}

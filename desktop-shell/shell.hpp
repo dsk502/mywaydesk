@@ -28,12 +28,30 @@
 #define _DS_SHELL_HPP_
 
 extern "C" {
+#include "config.h"
+
+#include <stdlib.h>
+#include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
+#include <unistd.h>
+#include <linux/input.h>
+#include <assert.h>
+#include <signal.h>
+#include <math.h>
+#include <sys/types.h>
 #include <time.h>
 
 #include <libweston/libweston.h>
 #include <libweston/xwayland-api.h>
+#include <libweston/config-parser.h>
+#include <libweston/shell-utils.h>
+#include <libweston/desktop.h>
+
+#include "frontend/weston.h"
+#include "shared/helpers.h"
+#include "shared/timespec-util.h"
 
 #include "weston-desktop-shell-server-protocol.h"
 }
@@ -70,20 +88,10 @@ public:
 	Workspace(DesktopShell *shell);
 	~Workspace();
 };
-/*
-struct workspace {
-	struct weston_layer layer;
 
-	struct wl_list focus_list;
-	struct wl_listener seat_destroyed_listener;
-
-	struct focus_surface *fsurf_front;
-	struct focus_surface *fsurf_back;
-	struct weston_view_animation *focus_animation;
-};*/
-
-struct shell_output {
-	struct desktop_shell  *shell;
+class ShellOutput {
+public:
+	DesktopShell  *shell;
 	struct weston_output  *output;
 	struct wl_listener    destroy_listener;
 	struct wl_list        link;
@@ -102,6 +110,9 @@ struct shell_output {
 	struct weston_surface *background_surface;
 	struct weston_view *background_view;
 	struct wl_listener background_surface_listener;
+
+	ShellOutput(DesktopShell *shell, struct weston_output *output);
+
 };
 
 struct weston_desktop;
@@ -264,9 +275,14 @@ public:
     void set_busy_cursor(weston_pointer *pointer);
     void surface_rotate(weston_pointer *pointer);
     bool shsurf_is_max_or_fullscreen();
-    void set_shsurf_size_maximized_or_fullscreen(
-        bool max_requested,
-        bool fullscreen_requested);
+    void set_shsurf_size_maximized_or_fullscreen(bool max_requested, bool fullscreen_requested);
+
+	void shell_surface_activate();
+	void shell_surface_deactivate();
+
+	void shell_surface_update_child_surface_layers();
+	void shell_surface_update_layer();
+	void shell_surface_set_output(struct weston_output *output);
 };
 
 struct weston_output *
@@ -287,23 +303,24 @@ get_output_work_area(DesktopShell *shell,
 		     pixman_rectangle32_t *area);
 
 void
-lower_fullscreen_layer(struct desktop_shell *shell,
+lower_fullscreen_layer(DesktopShell *shell,
 		       struct weston_output *lowering_output);
 
 void
-activate(struct desktop_shell *shell, struct weston_view *view,
+activate(DesktopShell *shell, struct weston_view *view,
 	 struct weston_seat *seat, uint32_t flags);
 
 int
-input_panel_setup(struct desktop_shell *shell);
-void
-input_panel_destroy(struct desktop_shell *shell);
+input_panel_setup(DesktopShell *shell);
 
-typedef void (*shell_for_each_layer_func_t)(struct desktop_shell *,
+void
+input_panel_destroy(DesktopShell *shell);
+
+typedef void (*shell_for_each_layer_func_t)(DesktopShell *,
 					    struct weston_layer *, void *);
 
 void
-shell_for_each_layer(struct desktop_shell *shell,
+shell_for_each_layer(DesktopShell *shell,
 		     shell_for_each_layer_func_t func,
 		     void *data);
 

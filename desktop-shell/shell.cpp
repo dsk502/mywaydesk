@@ -24,33 +24,10 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-extern "C" {
-#include "config.h"
-
-#include <stdlib.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <linux/input.h>
-#include <assert.h>
-#include <signal.h>
-#include <math.h>
-#include <sys/types.h>
-
-#include "frontend/weston.h"
-#include "weston-desktop-shell-server-protocol.h"
-#include <libweston/config-parser.h>
-#include "shared/helpers.h"
-#include "shared/timespec-util.h"
-#include <libweston/shell-utils.h>
-#include <libweston/desktop.h>
-}
-
 #include "shell.hpp"
 
-#define DEFAULT_NUM_WORKSPACES 1
-#define DEFAULT_WORKSPACE_CHANGE_ANIMATION_LENGTH 200
+#define DEFAULT_NUM_WorkspaceS 1
+#define DEFAULT_Workspace_CHANGE_ANIMATION_LENGTH 200
 
 struct focus_state {
 	DesktopShell *shell;
@@ -100,8 +77,7 @@ struct focus_state {
  *     (shsurf->parent != NULL) ⇒ !wl_list_is_empty(shsurf->children_link)
  */
 
-
-
+#include "shell.hpp"
 
 struct shell_grab {
 	struct weston_pointer_grab grab;
@@ -167,12 +143,12 @@ struct tablet_tool_listener {
 	struct wl_listener removed_listener;
 };
 
-//Former workspace_create()
+//Former Workspace_create()
 Workspace::Workspace(DesktopShell *shell)
 	:layer({0}), focus_list({0}), seat_destroyed_listener({0}),
 	fsurf_front(nullptr), fsurf_back(nullptr), focus_animation(nullptr)
 {
-	//struct workspace *ws = &shell->workspace;
+	//struct Workspace *ws = &shell->Workspace;
 
 	weston_layer_init(&this->layer, shell->compositor);
 	weston_layer_set_position(&this->layer, WESTON_LAYER_POSITION_NORMAL);
@@ -502,20 +478,20 @@ static struct focus_surface *
 create_focus_surface(struct weston_compositor *ec,
 		     struct weston_output *output)
 {
-	struct focus_surface *fsurf = NULL;
+	struct focus_surface *fsurf = nullptr;
 	struct weston_curtain_params curtain_params = {
+		.get_label = focus_surface_get_label,
+		.surface_committed = focus_surface_committed,
+		.surface_private = nullptr,
 		.r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0,
 		.pos = output->pos,
 		.width = output->width, .height = output->height,
-		.surface_committed = focus_surface_committed,
-		.get_label = focus_surface_get_label,
-		.surface_private = NULL,
 		.capture_input = false,
 	};
 
-	fsurf = malloc(sizeof *fsurf);
+	fsurf = static_cast<struct focus_surface *>(malloc(sizeof *fsurf));
 	if (!fsurf)
-		return NULL;
+		return nullptr;
 
 	curtain_params.surface_private = fsurf;
 
@@ -535,13 +511,13 @@ focus_surface_destroy(struct focus_surface *fsurf)
 static void
 focus_animation_done(struct weston_view_animation *animation, void *data)
 {
-	struct workspace *ws = data;
+	Workspace *ws = static_cast<Workspace *>(data);
 
 	ws->focus_animation = NULL;
 }
 
 static void
-animate_focus_change(DesktopShell *shell, struct workspace *ws,
+animate_focus_change(DesktopShell *shell, Workspace *ws,
 		     struct weston_view *from, struct weston_view *to)
 {
 	struct weston_view *front = ws->fsurf_front->curtain->view;
@@ -643,13 +619,13 @@ focus_state_surface_destroy(struct wl_listener *listener, void *data)
 
 static struct focus_state *
 focus_state_create(DesktopShell *shell, struct weston_seat *seat,
-		   struct workspace *ws)
+		   Workspace *ws)
 {
 	struct focus_state *state;
 
-	state = malloc(sizeof *state);
-	if (state == NULL)
-		return NULL;
+	state = static_cast<struct focus_state *>(malloc(sizeof *state));
+	if (state == nullptr)
+		return nullptr;
 
 	state->shell = shell;
 	state->keyboard_focus = NULL;
@@ -669,7 +645,7 @@ focus_state_create(DesktopShell *shell, struct weston_seat *seat,
 static struct focus_state *
 ensure_focus_state(DesktopShell *shell, struct weston_seat *seat)
 {
-	struct workspace *ws = get_current_workspace(shell);
+	Workspace *ws = get_current_workspace(shell);
 	struct focus_state *state;
 
 	wl_list_for_each(state, &ws->focus_list, link)
@@ -698,7 +674,7 @@ focus_state_set_focus(struct focus_state *state,
 }
 
 static void
-restore_focus_state(DesktopShell *shell, struct workspace *ws)
+restore_focus_state(DesktopShell *shell, Workspace *ws)
 {
 	struct focus_state *state, *next;
 	struct weston_surface *surface;
@@ -743,7 +719,7 @@ restore_focus_state(DesktopShell *shell, struct workspace *ws)
 }
 
 static void
-drop_focus_state(DesktopShell *shell, struct workspace *ws,
+drop_focus_state(DesktopShell *shell, Workspace *ws,
 		 struct weston_surface *surface)
 {
 	struct focus_state *state;
@@ -758,7 +734,7 @@ desktop_shell_destroy_layer(struct weston_layer *layer);
 
 /*
 static void
-workspace_destroy(struct workspace *ws)
+Workspace_destroy(struct Workspace *ws)
 {
 	struct focus_state *state, *next;
 
@@ -776,10 +752,10 @@ workspace_destroy(struct workspace *ws)
 static void
 seat_destroyed(struct wl_listener *listener, void *data)
 {
-	struct weston_seat *seat = data;
+	struct weston_seat *seat = static_cast<struct weston_seat *>(data);
 	struct focus_state *state, *next;
-	struct workspace *ws = container_of(listener,
-					    struct workspace,
+	Workspace *ws = container_of(listener,
+					    Workspace,
 					    seat_destroyed_listener);
 
 	wl_list_for_each_safe(state, next, &ws->focus_list, link)
@@ -789,9 +765,9 @@ seat_destroyed(struct wl_listener *listener, void *data)
 
 /*
 static void
-workspace_create(struct desktop_shell *shell)
+Workspace_create(struct desktop_shell *shell)
 {
-	struct workspace *ws = &shell->workspace;
+	struct Workspace *ws = &shell->Workspace;
 
 	weston_layer_init(&ws->layer, shell->compositor);
 	weston_layer_set_position(&ws->layer, WESTON_LAYER_POSITION_NORMAL);
@@ -817,7 +793,7 @@ workspace_create(struct desktop_shell *shell)
 	ws->focus_animation = NULL;
 }*/
 
-struct workspace *
+Workspace *
 get_current_workspace(DesktopShell *shell)
 {
 	return &shell->workspace;
@@ -1539,62 +1515,7 @@ handle_tablet_tool_focus(struct wl_listener *listener, void *data)
 	weston_desktop_client_ping(client);
 }
 
-static void
-shell_surface_deactivate(ShellSurface *shsurf)
-{
-	if (--shsurf->focus_count == 0)
-		sync_surface_activated_state(shsurf);
-}
 
-static void
-shell_surface_activate(ShellSurface *shsurf)
-{
-	if (shsurf->focus_count++ == 0)
-		sync_surface_activated_state(shsurf);
-}
-
-/* The surface will be inserted into the list immediately after the link
- * returned by this function (i.e. will be stacked immediately above the
- * returned link). */
-static struct weston_layer_entry *
-shell_surface_calculate_layer_link (ShellSurface *shsurf)
-{
-	struct workspace *ws;
-
-	if (weston_desktop_surface_get_fullscreen(shsurf->desktop_surface) &&
-	    !shsurf->state.lowered) {
-		return &shsurf->shell->fullscreen_layer.view_list;
-	}
-
-	/* Move the surface to a normal workspace layer so that surfaces
-	 * which were previously fullscreen or transient are no longer
-	 * rendered on top. */
-	ws = get_current_workspace(shsurf->shell);
-	return &ws->layer.view_list;
-}
-
-static void
-shell_surface_update_child_surface_layers (ShellSurface *shsurf)
-{
-	weston_desktop_surface_propagate_layer(shsurf->desktop_surface);
-}
-
-/* Update the surface’s layer. Mark both the old and new views as having dirty
- * geometry to ensure the changes are redrawn.
- *
- * If any child surfaces exist and are mapped, ensure they’re in the same layer
- * as this surface. */
-static void
-shell_surface_update_layer(ShellSurface *shsurf)
-{
-	struct weston_layer_entry *new_layer_link;
-
-	new_layer_link = shell_surface_calculate_layer_link(shsurf);
-	assert(new_layer_link);
-
-	weston_view_move_to_layer(shsurf->view, new_layer_link);
-	shell_surface_update_child_surface_layers(shsurf);
-}
 
 static void
 notify_output_destroy(struct wl_listener *listener, void *data)
@@ -1607,35 +1528,6 @@ notify_output_destroy(struct wl_listener *listener, void *data)
 	shsurf->output_destroy_listener.notify = NULL;
 
 	shsurf->fullscreen_output = NULL;
-}
-
-static void
-shell_surface_set_output(ShellSurface *shsurf,
-                         struct weston_output *output)
-{
-	struct weston_surface *es =
-		weston_desktop_surface_get_surface(shsurf->desktop_surface);
-
-	/* get the default output, if the client set it as NULL
-	   check whether the output is available */
-	if (output)
-		shsurf->output = output;
-	else if (es->output)
-		shsurf->output = es->output;
-	else
-		shsurf->output = weston_shell_utils_get_default_output(es->compositor);
-
-	if (shsurf->output_destroy_listener.notify) {
-		wl_list_remove(&shsurf->output_destroy_listener.link);
-		shsurf->output_destroy_listener.notify = NULL;
-	}
-
-	if (!shsurf->output)
-		return;
-
-	shsurf->output_destroy_listener.notify = notify_output_destroy;
-	wl_signal_add(&shsurf->output->destroy_signal,
-		      &shsurf->output_destroy_listener);
 }
 
 static void
@@ -1707,7 +1599,7 @@ set_minimized(struct weston_surface *surface)
 	assert(weston_surface_get_main_surface(view->surface) == view->surface);
 
 	shsurf = get_shell_surface(surface);
-	current_ws = get_current_workspace(shsurf->shell);
+	current_ws = get_current_Workspace(shsurf->shell);
 
 	weston_view_move_to_layer(view,
 				  &shsurf->shell->minimized_layer.view_list);
@@ -3052,7 +2944,7 @@ desktop_shell_set_lock_surface(struct wl_client *client,
 static void
 resume_desktop(DesktopShell *shell)
 {
-	struct workspace *ws = get_current_workspace(shell);
+	Workspace *ws = get_current_Workspace(shell);
 
 	weston_layer_unset_position(&shell->lock_layer);
 
@@ -3065,7 +2957,7 @@ resume_desktop(DesktopShell *shell)
 				  WESTON_LAYER_POSITION_UI);
 	weston_layer_set_position(&ws->layer, WESTON_LAYER_POSITION_NORMAL);
 
-	restore_focus_state(shell, get_current_workspace(shell));
+	restore_focus_state(shell, get_current_Workspace(shell));
 
 	shell->locked = false;
 	shell_fade(shell, FADE_IN);
@@ -3519,7 +3411,7 @@ rotate_binding(struct weston_pointer *pointer, const struct timespec *time,
 	surface_rotate(surface, pointer);
 }
 
-/* Move all fullscreen layers down to the current workspace and hide their
+/* Move all fullscreen layers down to the current Workspace and hide their
  * black views. The surfaces' state is set to both fullscreen and lowered,
  * and this is reversed when such a surface is re-configured, see
  * shell_set_view_fullscreen().
@@ -3533,10 +3425,10 @@ void
 lower_fullscreen_layer(DesktopShell *shell,
 		       struct weston_output *lowering_output)
 {
-	struct workspace *ws;
+	Workspace *ws;
 	struct weston_view *view, *prev;
 
-	ws = get_current_workspace(shell);
+	ws = get_current_Workspace(shell);
 	wl_list_for_each_reverse_safe(view, prev,
 				      &shell->fullscreen_layer.view_list.link,
 				      layer_link.link) {
@@ -3554,7 +3446,7 @@ lower_fullscreen_layer(DesktopShell *shell,
 		if (shsurf->fullscreen.black_view)
 			weston_view_move_to_layer(shsurf->fullscreen.black_view->view, NULL);
 
-		/* Lower the view to the workspace layer */
+		/* Lower the view to the Workspace layer */
 		weston_view_move_to_layer(view, &ws->layer.view_list);
 
 		shsurf->state.lowered = true;
@@ -3580,7 +3472,7 @@ activate(DesktopShell *shell, struct weston_view *view,
 	struct weston_surface *es = view->surface;
 	struct weston_surface *main_surface;
 	struct focus_state *state;
-	struct workspace *ws;
+	Workspace *ws;
 	struct weston_surface *old_es;
 	ShellSurface *shsurf, *shsurf_child;
 	struct shell_seat *shseat = get_shell_seat(seat);
@@ -3633,7 +3525,7 @@ activate(DesktopShell *shell, struct weston_view *view,
 
 	if (shell->focus_animation_type != ANIMATION_NONE) {
 		assert(shell->focus_animation_type == ANIMATION_DIM_LAYER);
-		ws = get_current_workspace(shell);
+		ws = get_current_Workspace(shell);
 		animate_focus_change(shell, ws, get_default_view(old_es), get_default_view(es));
 	}
 }
@@ -3722,7 +3614,7 @@ unfocus_all_seats(DesktopShell *shell)
 static void
 lock(DesktopShell *shell)
 {
-	struct workspace *ws = get_current_workspace(shell);
+	Workspace *ws = get_current_Workspace(shell);
 
 	if (shell->locked) {
 		weston_compositor_sleep(shell->compositor);
@@ -3747,7 +3639,7 @@ lock(DesktopShell *shell)
 	weston_compositor_sleep(shell->compositor);
 
 	/* Remove the keyboard focus on all seats. This will be
-	 * restored to the workspace's saved state via
+	 * restored to the Workspace's saved state via
 	 * restore_focus_state when the compositor is unlocked */
 	unfocus_all_seats(shell);
 
@@ -4186,7 +4078,7 @@ switcher_next(struct switcher *switcher)
 	struct weston_view *view;
 	struct weston_view *first = NULL, *prev = NULL, *next = NULL;
 	ShellSurface *shsurf;
-	struct workspace *ws = get_current_workspace(switcher->shell);
+	Workspace *ws = get_current_Workspace(switcher->shell);
 
 	 /* temporary re-display minimized surfaces */
 	struct weston_view *tmp;
@@ -4244,7 +4136,7 @@ switcher_destroy(struct switcher *switcher)
 {
 	struct weston_view *view;
 	struct weston_keyboard *keyboard = switcher->grab.keyboard;
-	struct workspace *ws = get_current_workspace(switcher->shell);
+	Workspace *ws = get_current_Workspace(switcher->shell);
 
 	wl_list_for_each(view, &ws->layer.view_list.link, layer_link.link) {
 		if (is_focus_view(view))
@@ -4462,7 +4354,7 @@ shell_for_each_layer(DesktopShell *shell,
 	func(shell, &shell->background_layer, data);
 	func(shell, &shell->lock_layer, data);
 	func(shell, &shell->input_panel_layer, data);
-	func(shell, &shell->workspace.layer, data);
+	func(shell, &shell->Workspace.layer, data);
 }
 
 static void
@@ -4547,34 +4439,12 @@ handle_output_resized(struct wl_listener *listener, void *data)
 	DesktopShell *shell =
 		container_of(listener, DesktopShell, resized_listener);
 	struct weston_output *output = (struct weston_output *)data;
-	struct shell_output *sh_output = find_shell_output_from_weston_output(shell, output);
+	ShellOutput *sh_output = find_shell_output_from_weston_output(shell, output);
 
 	handle_output_resized_shsurfs(shell);
 
 	shell_resize_surface_to_output(shell, sh_output->background_surface, output);
 	shell_resize_surface_to_output(shell, sh_output->panel_surface, output);
-}
-
-static void
-create_shell_output(DesktopShell *shell,
-					struct weston_output *output)
-{
-	struct shell_output *shell_output;
-
-	shell_output = zalloc(sizeof *shell_output);
-	if (shell_output == NULL)
-		return;
-
-	shell_output->output = output;
-	shell_output->shell = shell;
-	shell_output->destroy_listener.notify = handle_output_destroy;
-	wl_signal_add(&output->destroy_signal,
-		      &shell_output->destroy_listener);
-	wl_list_insert(shell->output_list.prev, &shell_output->link);
-
-	if (wl_list_length(&shell->output_list) == 1)
-		shell_for_each_layer(shell,
-				     shell_output_changed_move_layer, NULL);
 }
 
 static void
@@ -4584,7 +4454,7 @@ handle_output_create(struct wl_listener *listener, void *data)
 		container_of(listener, DesktopShell, output_create_listener);
 	struct weston_output *output = (struct weston_output *)data;
 
-	create_shell_output(shell, output);
+	new ShellOutput(shell, output);
 }
 
 static void
@@ -4726,7 +4596,7 @@ shell_destroy(struct wl_listener *listener, void *data)
 
 	weston_desktop_destroy(shell->desktop);
 
-	workspace_destroy(&shell->workspace);
+	//delete &shell->workspace;
 
 	desktop_shell_destroy_layer(&shell->panel_layer);
 	desktop_shell_destroy_layer(&shell->background_layer);
@@ -4736,7 +4606,7 @@ shell_destroy(struct wl_listener *listener, void *data)
 	desktop_shell_destroy_layer(&shell->fullscreen_layer);
 
 	free(shell->client);
-	free(shell);
+	delete shell;
 }
 
 static void
@@ -4904,11 +4774,11 @@ wet_shell_init(struct weston_compositor *ec,
 	wl_list_init(&shell->output_move_listener.link);
 	wl_list_init(&shell->seat_create_listener.link);
 	wl_list_init(&shell->resized_listener.link);
-	wl_list_init(&shell->workspace.focus_list);
-	wl_list_init(&shell->workspace.seat_destroyed_listener.link);
+	wl_list_init(&shell->Workspace.focus_list);
+	wl_list_init(&shell->Workspace.seat_destroyed_listener.link);
 
 	weston_layer_init(&shell->minimized_layer, ec);
-	weston_layer_init(&shell->workspace.layer, ec);
+	weston_layer_init(&shell->Workspace.layer, ec);
 
 	if (input_panel_setup(shell) < 0)
 		return -1;
@@ -4918,8 +4788,8 @@ wet_shell_init(struct weston_compositor *ec,
 	if (!shell_configuration(shell))
 		return -1;
 
-	//workspace_create(shell);
-	shell->workspace = new Workspace(shell);
+	//Workspace_create(shell);
+	shell->Workspace = new Workspace(shell);
 
 	shell->desktop = weston_desktop_create(ec, &shell_desktop_api, shell);
 	if (!shell->desktop)

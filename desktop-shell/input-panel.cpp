@@ -37,11 +37,12 @@ extern "C" {
 
 #include "shell.hpp"
 
-struct input_panel_surface {
+class InputPanelSurface {
+public:
 	struct wl_resource *resource;
 	struct wl_signal destroy_signal;
 
-	struct desktop_shell *shell;
+	DesktopShell *shell;
 
 	struct wl_list link;
 	struct weston_surface *surface;
@@ -52,50 +53,104 @@ struct input_panel_surface {
 
 	struct weston_output *output;
 	uint32_t panel;
+
+	InputPanelSurface(DesktopShell *shell, struct weston_surface *surface);
+	~InputPanelSurface();
+
+	int calc_input_panel_position(struct weston_coord_global *out_pos);
+	void show_input_panel_surface();
+	
 };
+
+/*
+static InputPanelSurface *
+create_input_panel_surface(DesktopShell *shell,
+			   struct weston_surface *surface)*/
+InputPanelSurface::InputPanelSurface(DesktopShell *shell, struct weston_surface *surface)
+	:resource(nullptr), destroy_signal({0}), shell(nullptr), link({0}),
+	surface(nullptr), view(nullptr), surface_destroy_listener({0}),
+	anim(nullptr), output(nullptr), panel(0)
+{
+	//InputPanelSurface *input_panel_surface = new InputPanelSurface();
+
+	//input_panel_surface = calloc(1, sizeof *input_panel_surface);
+	//if (!input_panel_surface)
+		//return NULL;
+
+	surface->committed = input_panel_committed;
+	surface->committed_private = this;
+	weston_surface_set_label_func(surface, input_panel_get_label);
+
+	this->shell = shell;
+
+	this->surface = surface;
+	this->view = weston_view_create(surface);
+
+	wl_signal_init(&this->destroy_signal);
+	this->surface_destroy_listener.notify = input_panel_handle_surface_destroy;
+	wl_signal_add(&surface->destroy_signal,
+		      &this->surface_destroy_listener);
+
+	wl_list_init(&this->link);
+}
+
+/*
+static void
+destroy_input_panel_surface(InputPanelSurface *input_panel_surface)*/
+InputPanelSurface::~InputPanelSurface()
+{
+	wl_signal_emit(&this->destroy_signal, this);
+
+	wl_list_remove(&this->surface_destroy_listener.link);
+	wl_list_remove(&this->link);
+
+	this->surface->committed = nullptr;
+	weston_surface_set_label_func(this->surface, nullptr);
+	weston_view_destroy(this->view);
+}
 
 static void
 input_panel_slide_done(struct weston_view_animation *animation, void *data)
 {
-	struct input_panel_surface *ipsurf = data;
+	InputPanelSurface *ipsurf = static_cast<InputPanelSurface *>(data);
 
 	ipsurf->anim = NULL;
 }
 
-static int
-calc_input_panel_position(struct input_panel_surface *ip_surface, struct weston_coord_global *out_pos)
+int
+InputPanelSurface::calc_input_panel_position(struct weston_coord_global *out_pos)
 {
-	struct desktop_shell *shell = ip_surface->shell;
+	DesktopShell *shell = this->shell;
 	struct weston_coord_global pos;
 
-	if (ip_surface->panel) {
+	if (this->panel) {
 		struct weston_view *view = get_default_view(shell->text_input.surface);
-		if (view == NULL)
+		if (view == nullptr)
 			return -1;
 		pos = weston_view_get_pos_offset_global(view);
 		pos.c.x += shell->text_input.cursor_rectangle.x2;
 		pos.c.y += shell->text_input.cursor_rectangle.y2;
 	} else {
-		pos = ip_surface->output->pos;
-		pos.c.x += (ip_surface->output->width - ip_surface->surface->width) / 2;
-		pos.c.y += ip_surface->output->height - ip_surface->surface->height;
+		pos = this->output->pos;
+		pos.c.x += (this->output->width - this->surface->width) / 2;
+		pos.c.y += this->output->height - this->surface->height;
 	}
 	*out_pos = pos;
 	return 0;
 }
 
-static void
-show_input_panel_surface(struct input_panel_surface *ipsurf)
+void
+InputPanelSurface::show_input_panel_surface()
 {
-	struct desktop_shell *shell = ipsurf->shell;
+	DesktopShell *shell = this->shell;
 	struct weston_seat *seat;
 	struct weston_surface *focus;
 	struct weston_coord_global pos;
 
-	if (!weston_surface_is_mapped(ipsurf->surface))
+	if (!weston_surface_is_mapped(this->surface))
 		return;
 
-	if (weston_view_is_mapped(ipsurf->view))
+	if (weston_view_is_mapped(this->view))
 		return;
 
 	wl_list_for_each(seat, &shell->compositor->seat_list, link) {
@@ -107,32 +162,32 @@ show_input_panel_surface(struct input_panel_surface *ipsurf)
 		focus = weston_surface_get_main_surface(keyboard->focus);
 		if (!focus)
 			continue;
-		ipsurf->output = focus->output;
-		if (calc_input_panel_position(ipsurf, &pos))
+		this->output = focus->output;
+		if (calc_input_panel_position(&pos))
 			continue;
 
-		weston_view_set_position(ipsurf->view, pos);
-		weston_view_move_to_layer(ipsurf->view,
+		weston_view_set_position(this->view, pos);
+		weston_view_move_to_layer(this->view,
 					  &shell->input_panel_layer.view_list);
 		break;
 	}
 
-	if (ipsurf->anim)
-		weston_view_animation_destroy(ipsurf->anim);
+	if (this->anim)
+		weston_view_animation_destroy(this->anim);
 
-	ipsurf->anim =
-		weston_slide_run(ipsurf->view,
-				 ipsurf->surface->height * 0.9, 0,
-				 input_panel_slide_done, ipsurf);
+	this->anim =
+		weston_slide_run(this->view,
+				 this->surface->height * 0.9, 0,
+				 input_panel_slide_done, this);
 }
 
 static void
 show_input_panels(struct wl_listener *listener, void *data)
 {
-	struct desktop_shell *shell =
-		container_of(listener, struct desktop_shell,
+	DesktopShell *shell =
+		container_of(listener, DesktopShell,
 			     show_input_panel_listener);
-	struct input_panel_surface *ipsurf, *next;
+	InputPanelSurface *ipsurf, *next;
 
 	shell->text_input.surface = (struct weston_surface*)data;
 
@@ -147,15 +202,15 @@ show_input_panels(struct wl_listener *listener, void *data)
 
 	wl_list_for_each_safe(ipsurf, next,
 			      &shell->input_panel.surfaces, link) {
-		show_input_panel_surface(ipsurf);
+		ipsurf->show_input_panel_surface();
 	}
 }
 
-static void
+void
 hide_input_panels(struct wl_listener *listener, void *data)
 {
-	struct desktop_shell *shell =
-		container_of(listener, struct desktop_shell,
+	DesktopShell *shell =
+		container_of(listener, DesktopShell,
 			     hide_input_panel_listener);
 	struct weston_view *view, *next;
 
@@ -173,11 +228,11 @@ hide_input_panels(struct wl_listener *listener, void *data)
 		weston_view_move_to_layer(view, NULL);
 }
 
-static void
+void
 update_input_panels(struct wl_listener *listener, void *data)
 {
-	struct desktop_shell *shell =
-		container_of(listener, struct desktop_shell,
+	DesktopShell *shell =
+		container_of(listener, DesktopShell,
 			     update_input_panel_listener);
 
 	memcpy(&shell->text_input.cursor_rectangle, data, sizeof(pixman_box32_t));
@@ -193,8 +248,8 @@ static void
 input_panel_committed(struct weston_surface *surface,
 		      struct weston_coord_surface new_origin)
 {
-	struct input_panel_surface *ip_surface = surface->committed_private;
-	struct desktop_shell *shell = ip_surface->shell;
+	InputPanelSurface *ip_surface = static_cast<InputPanelSurface *>(surface->committed_private);
+	DesktopShell *shell = ip_surface->shell;
 
 	if (!weston_surface_has_content(surface))
 		return;
@@ -205,75 +260,33 @@ input_panel_committed(struct weston_surface *surface,
 	weston_surface_map(surface);
 
 	if (shell->showing_input_panels)
-		show_input_panel_surface(ip_surface);
+		ip_surface->show_input_panel_surface();
 }
 
-static void
-destroy_input_panel_surface(struct input_panel_surface *input_panel_surface)
-{
-	wl_signal_emit(&input_panel_surface->destroy_signal, input_panel_surface);
 
-	wl_list_remove(&input_panel_surface->surface_destroy_listener.link);
-	wl_list_remove(&input_panel_surface->link);
 
-	input_panel_surface->surface->committed = NULL;
-	weston_surface_set_label_func(input_panel_surface->surface, NULL);
-	weston_view_destroy(input_panel_surface->view);
-
-	free(input_panel_surface);
-}
-
-static struct input_panel_surface *
+static InputPanelSurface *
 get_input_panel_surface(struct weston_surface *surface)
 {
 	if (surface->committed == input_panel_committed) {
-		return surface->committed_private;
+		return static_cast<InputPanelSurface *>(surface->committed_private);
 	} else {
-		return NULL;
+		return nullptr;
 	}
 }
 
 static void
 input_panel_handle_surface_destroy(struct wl_listener *listener, void *data)
 {
-	struct input_panel_surface *ipsurface = container_of(listener,
-							     struct input_panel_surface,
+	InputPanelSurface *ipsurface = container_of(listener,
+							     InputPanelSurface,
 							     surface_destroy_listener);
 
 	if (ipsurface->resource) {
 		wl_resource_destroy(ipsurface->resource);
 	} else {
-		destroy_input_panel_surface(ipsurface);
+		delete ipsurface;
 	}
-}
-
-static struct input_panel_surface *
-create_input_panel_surface(struct desktop_shell *shell,
-			   struct weston_surface *surface)
-{
-	struct input_panel_surface *input_panel_surface;
-
-	input_panel_surface = calloc(1, sizeof *input_panel_surface);
-	if (!input_panel_surface)
-		return NULL;
-
-	surface->committed = input_panel_committed;
-	surface->committed_private = input_panel_surface;
-	weston_surface_set_label_func(surface, input_panel_get_label);
-
-	input_panel_surface->shell = shell;
-
-	input_panel_surface->surface = surface;
-	input_panel_surface->view = weston_view_create(surface);
-
-	wl_signal_init(&input_panel_surface->destroy_signal);
-	input_panel_surface->surface_destroy_listener.notify = input_panel_handle_surface_destroy;
-	wl_signal_add(&surface->destroy_signal,
-		      &input_panel_surface->surface_destroy_listener);
-
-	wl_list_init(&input_panel_surface->link);
-
-	return input_panel_surface;
 }
 
 static void
@@ -282,9 +295,9 @@ input_panel_surface_set_toplevel(struct wl_client *client,
 				 struct wl_resource *output_resource,
 				 uint32_t position)
 {
-	struct input_panel_surface *input_panel_surface =
-		wl_resource_get_user_data(resource);
-	struct desktop_shell *shell = input_panel_surface->shell;
+	InputPanelSurface *input_panel_surface =
+		static_cast<InputPanelSurface *>(wl_resource_get_user_data(resource));
+	DesktopShell *shell = input_panel_surface->shell;
 	struct weston_head *head = weston_head_from_resource(output_resource);
 
 	if (head) {
@@ -300,9 +313,9 @@ static void
 input_panel_surface_set_overlay_panel(struct wl_client *client,
 				      struct wl_resource *resource)
 {
-	struct input_panel_surface *input_panel_surface =
-		wl_resource_get_user_data(resource);
-	struct desktop_shell *shell = input_panel_surface->shell;
+	InputPanelSurface *input_panel_surface =
+		static_cast<InputPanelSurface *>(wl_resource_get_user_data(resource));
+	DesktopShell *shell = input_panel_surface->shell;
 
 	wl_list_insert(&shell->input_panel.surfaces,
 		       &input_panel_surface->link);
@@ -318,10 +331,10 @@ static const struct zwp_input_panel_surface_v1_interface input_panel_surface_imp
 static void
 destroy_input_panel_surface_resource(struct wl_resource *resource)
 {
-	struct input_panel_surface *ipsurf =
-		wl_resource_get_user_data(resource);
+	InputPanelSurface *ipsurf =
+		static_cast<InputPanelSurface *>(wl_resource_get_user_data(resource));
 
-	destroy_input_panel_surface(ipsurf);
+	delete ipsurf;
 }
 
 static void
@@ -331,9 +344,9 @@ input_panel_get_input_panel_surface(struct wl_client *client,
 				    struct wl_resource *surface_resource)
 {
 	struct weston_surface *surface =
-		wl_resource_get_user_data(surface_resource);
-	struct desktop_shell *shell = wl_resource_get_user_data(resource);
-	struct input_panel_surface *ipsurf;
+		static_cast<struct weston_surface *>(wl_resource_get_user_data(surface_resource));
+	DesktopShell *shell = static_cast<DesktopShell *>(wl_resource_get_user_data(resource));
+	InputPanelSurface *ipsurf;
 
 	if (get_input_panel_surface(surface)) {
 		wl_resource_post_error(surface_resource,
@@ -342,7 +355,7 @@ input_panel_get_input_panel_surface(struct wl_client *client,
 		return;
 	}
 
-	ipsurf = create_input_panel_surface(shell, surface);
+	ipsurf = new InputPanelSurface(shell, surface);
 	if (!ipsurf) {
 		wl_resource_post_error(surface_resource,
 				       WL_DISPLAY_ERROR_INVALID_OBJECT,
@@ -368,7 +381,7 @@ static const struct zwp_input_panel_v1_interface input_panel_implementation = {
 static void
 unbind_input_panel(struct wl_resource *resource)
 {
-	struct desktop_shell *shell = wl_resource_get_user_data(resource);
+	DesktopShell *shell = static_cast<DesktopShell *>(wl_resource_get_user_data(resource));
 
 	shell->input_panel.binding = NULL;
 }
@@ -377,7 +390,7 @@ static void
 bind_input_panel(struct wl_client *client,
 	      void *data, uint32_t version, uint32_t id)
 {
-	struct desktop_shell *shell = data;
+	DesktopShell *shell = static_cast<DesktopShell *>(data);
 	struct wl_resource *resource;
 
 	resource = wl_resource_create(client,
@@ -395,15 +408,16 @@ bind_input_panel(struct wl_client *client,
 			       "interface object already bound");
 }
 
+
 void
-input_panel_destroy(struct desktop_shell *shell)
+input_panel_destroy(DesktopShell *shell)
 {
 	wl_list_remove(&shell->show_input_panel_listener.link);
 	wl_list_remove(&shell->hide_input_panel_listener.link);
 }
 
 int
-input_panel_setup(struct desktop_shell *shell)
+input_panel_setup(DesktopShell *shell)
 {
 	struct weston_compositor *ec = shell->compositor;
 

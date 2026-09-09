@@ -24,6 +24,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+#include "shell.hpp"
+
 DesktopShell::DesktopShell()
 	:compositor(nullptr), desktop(nullptr), xwayland_surface_api(nullptr),
 	idle_listener({0}), wake_listener({0}), transform_listener({0}), resized_listener({0}), destroy_listener({0}), show_input_panel_listener({0}), hide_input_panel_listener({0}), update_input_panel_listener({0}), session_listener({0}),
@@ -47,8 +49,6 @@ DesktopShell::~DesktopShell()
 {
 
 }
-
-
 
 bool
 DesktopShell::shell_configuration()

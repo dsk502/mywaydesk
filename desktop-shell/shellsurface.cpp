@@ -131,3 +131,88 @@ ShellSurface::surface_rotate(struct weston_pointer *pointer)
 	shell_grab_start(&rotate->base, &rotate_grab_interface, this,
 			 pointer, WESTON_DESKTOP_SHELL_CURSOR_ARROW);
 }
+
+void
+ShellSurface::shell_surface_activate()
+{
+	if (this->focus_count++ == 0)
+		sync_surface_activated_state(this);
+}
+
+void
+ShellSurface::shell_surface_deactivate()
+{
+	if (--this->focus_count == 0)
+		sync_surface_activated_state(this);
+}
+
+/* The surface will be inserted into the list immediately after the link
+ * returned by this function (i.e. will be stacked immediately above the
+ * returned link). */
+static struct weston_layer_entry *
+shell_surface_calculate_layer_link (ShellSurface *shsurf)
+{
+	Workspace *ws;
+
+	if (weston_desktop_surface_get_fullscreen(shsurf->desktop_surface) &&
+	    !shsurf->state.lowered) {
+		return &shsurf->shell->fullscreen_layer.view_list;
+	}
+
+	/* Move the surface to a normal Workspace layer so that surfaces
+	 * which were previously fullscreen or transient are no longer
+	 * rendered on top. */
+	ws = get_current_workspace(shsurf->shell);
+	return &ws->layer.view_list;
+}
+
+void
+ShellSurface::shell_surface_update_child_surface_layers()
+{
+	weston_desktop_surface_propagate_layer(this->desktop_surface);
+}
+
+/* Update the surface’s layer. Mark both the old and new views as having dirty
+ * geometry to ensure the changes are redrawn.
+ *
+ * If any child surfaces exist and are mapped, ensure they’re in the same layer
+ * as this surface. */
+void
+ShellSurface::shell_surface_update_layer()
+{
+	struct weston_layer_entry *new_layer_link;
+
+	new_layer_link = shell_surface_calculate_layer_link(this);
+	assert(new_layer_link);
+
+	weston_view_move_to_layer(this->view, new_layer_link);
+	shell_surface_update_child_surface_layers(this);
+}
+
+void
+ShellSurface::shell_surface_set_output(struct weston_output *output)
+{
+	struct weston_surface *es =
+		weston_desktop_surface_get_surface(this->desktop_surface);
+
+	/* get the default output, if the client set it as NULL
+	   check whether the output is available */
+	if (output)
+		this->output = output;
+	else if (es->output)
+		this->output = es->output;
+	else
+		this->output = weston_shell_utils_get_default_output(es->compositor);
+
+	if (this->output_destroy_listener.notify) {
+		wl_list_remove(&this->output_destroy_listener.link);
+		this->output_destroy_listener.notify = NULL;
+	}
+
+	if (!this->output)
+		return;
+
+	this->output_destroy_listener.notify = notify_output_destroy;
+	wl_signal_add(&this->output->destroy_signal,
+		      &this->output_destroy_listener);
+}

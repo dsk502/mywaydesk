@@ -29,15 +29,7 @@
 #define DEFAULT_NUM_WorkspaceS 1
 #define DEFAULT_Workspace_CHANGE_ANIMATION_LENGTH 200
 
-struct focus_state {
-	DesktopShell *shell;
-	struct weston_seat *seat;
-	Workspace *ws;
-	struct weston_surface *keyboard_focus;
-	struct wl_list link;
-	struct wl_listener seat_destroy_listener;
-	struct wl_listener surface_destroy_listener;
-};
+
 
 /*
  * Surface stacking and ordering.
@@ -314,7 +306,7 @@ is_focus_view (struct weston_view *view)
 	return (view->surface->committed == focus_surface_committed);
 }
 
-static struct focus_surface *
+struct focus_surface *
 create_focus_surface(struct weston_compositor *ec,
 		     struct weston_output *output)
 {
@@ -341,7 +333,7 @@ create_focus_surface(struct weston_compositor *ec,
 	return fsurf;
 }
 
-static void
+void
 focus_surface_destroy(struct focus_surface *fsurf)
 {
 	weston_shell_utils_curtain_destroy(fsurf->curtain);
@@ -389,7 +381,7 @@ animate_focus_change(DesktopShell *shell, Workspace *ws,
 	}
 }
 
-static void
+void
 focus_state_destroy(struct focus_state *state)
 {
 	wl_list_remove(&state->seat_destroy_listener.link);
@@ -589,7 +581,7 @@ Workspace_destroy(struct Workspace *ws)
 	desktop_shell_destroy_layer(&ws->layer);
 }*/
 
-static void
+void
 seat_destroyed(struct wl_listener *listener, void *data)
 {
 	struct weston_seat *seat = static_cast<struct weston_seat *>(data);
@@ -1223,7 +1215,7 @@ handle_tablet_tool_focus(struct wl_listener *listener, void *data)
 	weston_desktop_client_ping(client);
 }
 
-static void
+void
 weston_view_set_initial_position(struct weston_view *view,
 				 DesktopShell *shell);
 
@@ -1428,7 +1420,7 @@ get_shell_seat(struct weston_seat *seat)
 
 
 
-static ShellSurface *
+ShellSurface *
 get_shell_surface(struct weston_surface *surface)
 {
 	if (weston_surface_is_desktop_surface(surface)) {
@@ -3665,7 +3657,7 @@ setup_output_destroy_handler(struct weston_compositor *ec,
 	wl_signal_add(&ec->output_moved_signal, &shell->output_move_listener);
 }
 
-static void
+void
 desktop_shell_destroy_layer(struct weston_layer *layer)
 {
 	struct weston_view *view;
@@ -3884,7 +3876,7 @@ handle_seat_created(struct wl_listener *listener, void *data)
 	create_shell_seat(shell, seat);
 }
 
-static void
+void
 black_surface_committed(struct weston_surface *es,
 			struct weston_coord_surface new_origin)
 {

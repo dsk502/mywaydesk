@@ -139,6 +139,16 @@ struct tablet_tool_listener {
 	struct wl_listener removed_listener;
 };
 
+struct focus_state {
+	DesktopShell *shell;
+	struct weston_seat *seat;
+	Workspace *ws;
+	struct weston_surface *keyboard_focus;
+	struct wl_list link;
+	struct wl_listener seat_destroy_listener;
+	struct wl_listener surface_destroy_listener;
+};
+
 struct focus_surface {
 	struct weston_curtain *curtain;
 };
@@ -480,4 +490,19 @@ shell_output_changed_move_layer(DesktopShell *shell,
 void
 handle_output_destroy(struct wl_listener *listener, void *data);
 
+void
+focus_state_destroy(struct focus_state *state);
+
+void
+seat_destroyed(struct wl_listener *listener, void *data);
+
+void
+focus_surface_destroy(struct focus_surface *fsurf);
+
+struct focus_surface *
+create_focus_surface(struct weston_compositor *ec,
+		     struct weston_output *output);
+
+void
+desktop_shell_destroy_layer(struct weston_layer *layer);
 #endif

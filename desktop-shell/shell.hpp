@@ -115,6 +115,12 @@ struct rotate_grab {
 	} center;
 };
 
+struct weston_resize_grab {
+	struct shell_grab base;
+	uint32_t edges;
+	int32_t width, height;
+};
+
 struct shell_seat {
 	struct weston_seat *seat;
 	struct wl_listener seat_destroy_listener;
@@ -281,6 +287,7 @@ public:
 	void lock();
 	void unlock();
 	void resume_desktop();
+	Workspace * get_current_workspace();
 };
 
 class ShellSurface {
@@ -342,11 +349,19 @@ public:
 	DesktopShell *shell_surface_get_shell();
 	void get_maximized_size(int32_t *width, int32_t *height);
     void set_busy_cursor(weston_pointer *pointer);
+    int surface_move(weston_pointer *pointer, bool client_initiated);
     void surface_rotate(weston_pointer *pointer);
+
     bool shsurf_is_max_or_fullscreen();
     void set_shsurf_size_maximized_or_fullscreen(bool max_requested, bool fullscreen_requested);
+    void set_fullscreen(bool fullscreen, weston_output *output);
+    void unset_fullscreen();
+	void set_maximized(bool maximized);
+    void unset_maximized();
+    void shell_set_view_fullscreen();
 
-	void shell_surface_activate();
+    struct weston_layer_entry * shell_surface_calculate_layer_link();
+    void shell_surface_activate();
 	void shell_surface_deactivate();
 
 	void shell_surface_update_child_surface_layers();
@@ -354,7 +369,39 @@ public:
 	void shell_surface_set_output(struct weston_output *output);
 
 	bool has_keyboard_focused_child();
+	int surface_resize(struct weston_pointer *pointer, uint32_t edges);
 };
+
+class Switcher {
+public:
+	DesktopShell *shell;
+	struct weston_view *current;
+	struct wl_listener listener;
+	struct weston_keyboard_grab grab;
+	struct wl_array minimized_array;
+
+	Switcher();
+	~Switcher();
+
+    void switcher_next();
+    static void switcher_handle_view_destroy(wl_listener *listener, void *data);
+};
+
+/*
+ * Common variables (only declarations)
+ */
+
+extern const struct weston_pointer_grab_interface busy_cursor_grab_interface;
+
+extern const struct weston_pointer_grab_interface resize_grab_interface;
+
+extern const struct weston_pointer_grab_interface rotate_grab_interface;
+
+extern const struct weston_pointer_grab_interface move_grab_interface;
+
+/*
+ * Tool methods
+ */
 
 struct weston_output *
 get_default_output(struct weston_compositor *compositor);
@@ -364,9 +411,6 @@ get_default_view(struct weston_surface *surface);
 
 ShellSurface *
 get_shell_surface(struct weston_surface *surface);
-
-Workspace *
-get_current_workspace(DesktopShell *shell);
 
 void
 get_output_work_area(DesktopShell *shell,
@@ -394,5 +438,46 @@ void
 shell_for_each_layer(DesktopShell *shell,
 		     shell_for_each_layer_func_t func,
 		     void *data);
+
+void
+black_surface_committed(struct weston_surface *es,
+			struct weston_coord_surface new_origin);
+
+bool
+is_black_surface_view(struct weston_view *view, struct weston_view **fs_view);
+
+void
+shell_grab_start(struct shell_grab *grab,
+		 const struct weston_pointer_grab_interface *interface,
+		 ShellSurface *shsurf,
+		 struct weston_pointer *pointer,
+		 enum weston_desktop_shell_cursor cursor);
+
+bool
+is_focus_view(struct weston_view *view);
+
+void
+fade_out_done(struct weston_view_animation *animation, void *data);
+
+void
+restore_focus_state(DesktopShell *shell, Workspace *ws);
+
+void
+weston_view_set_initial_position(struct weston_view *view,
+				 DesktopShell *shell);
+
+void
+unfocus_all_seats(DesktopShell *shell);
+
+int
+black_surface_get_label(struct weston_surface *surface, char *buf, size_t len);
+
+void
+shell_output_changed_move_layer(DesktopShell *shell,
+				struct weston_layer *layer,
+				void *data);
+
+void
+handle_output_destroy(struct wl_listener *listener, void *data);
 
 #endif

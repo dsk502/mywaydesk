@@ -79,58 +79,6 @@ struct focus_state {
 
 #include "shell.hpp"
 
-
-
-//Former workspace_create()
-Workspace::Workspace(DesktopShell *shell)
-	:layer({0}), focus_list({0}), seat_destroyed_listener({0}),
-	fsurf_front(nullptr), fsurf_back(nullptr), focus_animation(nullptr)
-{
-	//struct Workspace *ws = &shell->workspace;
-
-	weston_layer_init(&this->layer, shell->compositor);
-	weston_layer_set_position(&this->layer, WESTON_LAYER_POSITION_NORMAL);
-
-	wl_list_init(&this->focus_list);
-	wl_list_init(&this->seat_destroyed_listener.link);
-	this->seat_destroyed_listener.notify = seat_destroyed;
-
-	if (shell->focus_animation_type != ANIMATION_NONE) {
-		struct weston_output *output =
-			weston_shell_utils_get_default_output(shell->compositor);
-
-		assert(shell->focus_animation_type == ANIMATION_DIM_LAYER);
-
-		this->fsurf_front = create_focus_surface(shell->compositor, output);
-		assert(this->fsurf_front);
-		this->fsurf_back = create_focus_surface(shell->compositor, output);
-		assert(this->fsurf_back);
-	} else {
-		this->fsurf_front = nullptr;
-		this->fsurf_back = nullptr;
-	}
-	this->focus_animation = nullptr;
-}
-
-Workspace::~Workspace()
-{
-	struct focus_state *state, *next;
-
-	wl_list_for_each_safe(state, next, &this->focus_list, link)
-		focus_state_destroy(state);
-
-	if (this->fsurf_front)
-		focus_surface_destroy(this->fsurf_front);
-	if (this->fsurf_back)
-		focus_surface_destroy(this->fsurf_back);
-
-	desktop_shell_destroy_layer(&this->layer);
-}
-
-
-
-
-
 static struct shell_seat *
 get_shell_seat(struct weston_seat *seat);
 
@@ -149,32 +97,6 @@ find_shell_output_from_weston_output(DesktopShell *shell,
 	}
 
 	return NULL;
-}
-
-
-
-/*
- * helper to take into account panels and send the appropriate dimensions
- */
-void
-ShellSurface::set_shsurf_size_maximized_or_fullscreen(
-					bool max_requested,
-					bool fullscreen_requested)
-{
-	int width = 0; int height = 0;
-
-	if (fullscreen_requested) {
-		if (this->output) {
-			width = this->output->width;
-			height = this->output->height;
-		}
-	} else if (max_requested) {
-		/* take the panels into considerations */
-		get_maximized_size(&width, &height);
-	}
-
-	/* (0, 0) means we're back from one of the maximized/fullcreen states */
-	weston_desktop_surface_set_size(this->desktop_surface, width, height);
 }
 
 static void
@@ -386,7 +308,7 @@ focus_surface_committed(struct weston_surface *es,
 {
 }
 
-static bool
+bool
 is_focus_view (struct weston_view *view)
 {
 	return (view->surface->committed == focus_surface_committed);
@@ -563,7 +485,7 @@ focus_state_create(DesktopShell *shell, struct weston_seat *seat,
 static struct focus_state *
 ensure_focus_state(DesktopShell *shell, struct weston_seat *seat)
 {
-	Workspace *ws = get_current_workspace(shell);
+	Workspace *ws = shell->get_current_workspace();
 	struct focus_state *state;
 
 	wl_list_for_each(state, &ws->focus_list, link)
@@ -591,7 +513,7 @@ focus_state_set_focus(struct focus_state *state,
 			      &state->surface_destroy_listener);
 }
 
-static void
+void
 restore_focus_state(DesktopShell *shell, Workspace *ws)
 {
 	struct focus_state *state, *next;
@@ -711,11 +633,7 @@ Workspace_create(struct desktop_shell *shell)
 	ws->focus_animation = NULL;
 }*/
 
-Workspace *
-get_current_workspace(DesktopShell *shell)
-{
-	return &shell->workspace;
-}
+
 
 static void
 surface_keyboard_focus_lost(struct weston_surface *surface)
@@ -810,10 +728,10 @@ surface_touch_move(ShellSurface *shsurf, struct weston_touch *touch)
 	if (!shsurf)
 		return -1;
 
-	if (shsurf_is_max_or_fullscreen(shsurf))
+	if (shsurf->shsurf_is_max_or_fullscreen())
 		return 0;
 
-	move = malloc(sizeof *move);
+	move = static_cast<struct weston_touch_move_grab *>(malloc(sizeof *move));
 	if (!move)
 		return -1;
 
@@ -910,7 +828,7 @@ move_grab_button(struct weston_pointer_grab *grab,
 	struct shell_grab *shell_grab = container_of(grab, struct shell_grab,
 						    grab);
 	struct weston_pointer *pointer = grab->pointer;
-	enum wl_pointer_button_state state = state_w;
+	enum wl_pointer_button_state state = static_cast<enum wl_pointer_button_state>(state_w);
 
 	if (pointer->button_count == 0 &&
 	    state == WL_POINTER_BUTTON_STATE_RELEASED) {
@@ -929,7 +847,7 @@ move_grab_cancel(struct weston_pointer_grab *grab)
 	free(grab);
 }
 
-static const struct weston_pointer_grab_interface move_grab_interface = {
+const struct weston_pointer_grab_interface move_grab_interface = {
 	noop_grab_focus,
 	move_grab_motion,
 	move_grab_button,
@@ -939,41 +857,9 @@ static const struct weston_pointer_grab_interface move_grab_interface = {
 	move_grab_cancel,
 };
 
-static int
-surface_move(ShellSurface *shsurf, struct weston_pointer *pointer,
-	     bool client_initiated)
-{
-	struct weston_move_grab *move;
 
-	if (!shsurf)
-		return -1;
 
-	if (shsurf->grabbed || shsurf_is_max_or_fullscreen(shsurf))
-		return 0;
 
-	move = malloc(sizeof *move);
-	if (!move)
-		return -1;
-
-	move->delta = weston_coord_global_sub(
-		weston_view_get_pos_offset_global(shsurf->view),
-		pointer->grab_pos);
-	move->client_initiated = client_initiated;
-
-	weston_desktop_surface_set_orientation(shsurf->desktop_surface,
-					       WESTON_TOP_LEVEL_TILED_ORIENTATION_NONE);
-	shsurf->orientation = WESTON_TOP_LEVEL_TILED_ORIENTATION_NONE;
-	shell_grab_start(&move->base, &move_grab_interface, shsurf,
-			 pointer, WESTON_DESKTOP_SHELL_CURSOR_MOVE);
-
-	return 0;
-}
-
-struct weston_resize_grab {
-	struct shell_grab base;
-	uint32_t edges;
-	int32_t width, height;
-};
 
 static void
 tablet_tool_noop_grab_proximity_in(struct weston_tablet_tool_grab *grab,
@@ -1098,7 +984,7 @@ surface_tablet_tool_move(ShellSurface *shsurf, struct weston_tablet_tool *tool)
 	if (shsurf->state.fullscreen || shsurf->state.maximized)
 		return 0;
 
-	move = malloc(sizeof(*move));
+	move = static_cast<struct weston_tablet_tool_move_grab *>(malloc(sizeof(*move)));
 	if (!move)
 		return -1;
 
@@ -1181,7 +1067,7 @@ resize_grab_button(struct weston_pointer_grab *grab,
 {
 	struct weston_resize_grab *resize = (struct weston_resize_grab *) grab;
 	struct weston_pointer *pointer = grab->pointer;
-	enum wl_pointer_button_state state = state_w;
+	enum wl_pointer_button_state state = static_cast<enum wl_pointer_button_state>(state_w);
 
 	if (pointer->button_count == 0 &&
 	    state == WL_POINTER_BUTTON_STATE_RELEASED) {
@@ -1214,7 +1100,7 @@ resize_grab_cancel(struct weston_pointer_grab *grab)
 	free(grab);
 }
 
-static const struct weston_pointer_grab_interface resize_grab_interface = {
+const struct weston_pointer_grab_interface resize_grab_interface = {
 	noop_grab_focus,
 	resize_grab_motion,
 	resize_grab_button,
@@ -1223,49 +1109,6 @@ static const struct weston_pointer_grab_interface resize_grab_interface = {
 	noop_grab_frame,
 	resize_grab_cancel,
 };
-
-
-static int
-surface_resize(ShellSurface *shsurf,
-	       struct weston_pointer *pointer, uint32_t edges)
-{
-	struct weston_resize_grab *resize;
-	const unsigned resize_topbottom =
-		WESTON_DESKTOP_SURFACE_EDGE_TOP | WESTON_DESKTOP_SURFACE_EDGE_BOTTOM;
-	const unsigned resize_leftright =
-		WESTON_DESKTOP_SURFACE_EDGE_LEFT | WESTON_DESKTOP_SURFACE_EDGE_RIGHT;
-	const unsigned resize_any = resize_topbottom | resize_leftright;
-	struct weston_geometry geometry;
-
-	if (shsurf->grabbed || shsurf_is_max_or_fullscreen(shsurf))
-		return 0;
-
-	/* Check for invalid edge combinations. */
-	if (edges == WESTON_DESKTOP_SURFACE_EDGE_NONE || edges > resize_any ||
-	    (edges & resize_topbottom) == resize_topbottom ||
-	    (edges & resize_leftright) == resize_leftright)
-		return 0;
-
-	resize = malloc(sizeof *resize);
-	if (!resize)
-		return -1;
-
-	resize->edges = edges;
-
-	geometry = weston_desktop_surface_get_geometry(shsurf->desktop_surface);
-	resize->width = geometry.width;
-	resize->height = geometry.height;
-
-	shsurf->resize_edges = edges;
-	weston_desktop_surface_set_resizing(shsurf->desktop_surface, true);
-	weston_desktop_surface_set_orientation(shsurf->desktop_surface,
-					       WESTON_TOP_LEVEL_TILED_ORIENTATION_NONE);
-	shsurf->orientation = WESTON_TOP_LEVEL_TILED_ORIENTATION_NONE;
-	shell_grab_start(&resize->base, &resize_grab_interface, shsurf,
-			 pointer, edges);
-
-	return 0;
-}
 
 static void
 busy_cursor_grab_focus(struct weston_pointer_grab *base)
@@ -1306,11 +1149,11 @@ busy_cursor_grab_button(struct weston_pointer_grab *base,
 	if (shsurf && button == BTN_LEFT && state) {
 		activate(shsurf->shell, shsurf->view, seat,
 			 WESTON_ACTIVATE_FLAG_CONFIGURE);
-		surface_move(shsurf, pointer, false);
+		shsurf->surface_move(pointer, false);
 	} else if (shsurf && button == BTN_RIGHT && state) {
 		activate(shsurf->shell, shsurf->view, seat,
 			 WESTON_ACTIVATE_FLAG_CONFIGURE);
-		surface_rotate(shsurf, pointer);
+		shsurf->surface_rotate(pointer);
 	}
 }
 
@@ -1323,7 +1166,7 @@ busy_cursor_grab_cancel(struct weston_pointer_grab *base)
 	free(grab);
 }
 
-static const struct weston_pointer_grab_interface busy_cursor_grab_interface = {
+const struct weston_pointer_grab_interface busy_cursor_grab_interface = {
 	busy_cursor_grab_focus,
 	busy_cursor_grab_motion,
 	busy_cursor_grab_button,
@@ -1336,7 +1179,7 @@ static const struct weston_pointer_grab_interface busy_cursor_grab_interface = {
 static void
 handle_pointer_focus(struct wl_listener *listener, void *data)
 {
-	struct weston_pointer *pointer = data;
+	struct weston_pointer *pointer = static_cast<struct weston_pointer *>(data);
 	struct weston_view *view = pointer->focus;
 	ShellSurface *shsurf;
 	struct weston_desktop_client *client;
@@ -1351,19 +1194,19 @@ handle_pointer_focus(struct wl_listener *listener, void *data)
 	client = weston_desktop_surface_get_client(shsurf->desktop_surface);
 
 	if (shsurf->unresponsive)
-		set_busy_cursor(shsurf, pointer);
+		shsurf->set_busy_cursor(pointer);
 	else
 		weston_desktop_client_ping(client);
 }
 
 static void
 has_keyboard_focused_child_callback(struct weston_desktop_surface *surface,
-				    void *user_data)
+				    void *user_data);
 
 static void
 handle_tablet_tool_focus(struct wl_listener *listener, void *data)
 {
-	struct weston_tablet_tool *tool = data;
+	struct weston_tablet_tool *tool = static_cast<struct weston_tablet_tool *>(data);
 	struct weston_view *view = tool->focus;
 	ShellSurface *shsurf;
 	struct weston_desktop_client *client;
@@ -1380,75 +1223,9 @@ handle_tablet_tool_focus(struct wl_listener *listener, void *data)
 	weston_desktop_client_ping(client);
 }
 
-
-
-static void
-notify_output_destroy(struct wl_listener *listener, void *data)
-{
-	ShellSurface *shsurf =
-		container_of(listener,
-			     ShellSurface, output_destroy_listener);
-
-	shsurf->output = NULL;
-	shsurf->output_destroy_listener.notify = NULL;
-
-	shsurf->fullscreen_output = NULL;
-}
-
 static void
 weston_view_set_initial_position(struct weston_view *view,
 				 DesktopShell *shell);
-
-static void
-unset_fullscreen(ShellSurface *shsurf)
-{
-	if (shsurf->fullscreen.black_view)
-		weston_shell_utils_curtain_destroy(shsurf->fullscreen.black_view);
-	shsurf->fullscreen.black_view = NULL;
-
-	if (shsurf->saved_position_valid)
-		weston_view_set_position(shsurf->view, shsurf->saved_pos);
-	else
-		weston_view_set_initial_position(shsurf->view, shsurf->shell);
-	shsurf->saved_position_valid = false;
-
-	weston_desktop_surface_set_orientation(shsurf->desktop_surface,
-					       shsurf->orientation);
-
-	if (shsurf->saved_rotation_valid) {
-		weston_view_add_transform(shsurf->view,
-					  &shsurf->view->geometry.transformation_list,
-					  &shsurf->rotation.transform);
-		shsurf->saved_rotation_valid = false;
-	}
-}
-
-static void
-unset_maximized(ShellSurface *shsurf)
-{
-	struct weston_surface *surface =
-		weston_desktop_surface_get_surface(shsurf->desktop_surface);
-
-	/* undo all maximized things here */
-	shell_surface_set_output(shsurf,
-			weston_shell_utils_get_default_output(surface->compositor));
-
-	if (shsurf->saved_position_valid)
-		weston_view_set_position(shsurf->view, shsurf->saved_pos);
-	else
-		weston_view_set_initial_position(shsurf->view, shsurf->shell);
-	shsurf->saved_position_valid = false;
-
-	weston_desktop_surface_set_orientation(shsurf->desktop_surface,
-					       shsurf->orientation);
-
-	if (shsurf->saved_rotation_valid) {
-		weston_view_add_transform(shsurf->view,
-					  &shsurf->view->geometry.transformation_list,
-					  &shsurf->rotation.transform);
-		shsurf->saved_rotation_valid = false;
-	}
-}
 
 static void
 set_minimized(struct weston_surface *surface)
@@ -1464,7 +1241,7 @@ set_minimized(struct weston_surface *surface)
 	assert(weston_surface_get_main_surface(view->surface) == view->surface);
 
 	shsurf = get_shell_surface(surface);
-	current_ws = get_current_Workspace(shsurf->shell);
+	current_ws = shsurf->shell->get_current_workspace();
 
 	weston_view_move_to_layer(view,
 				  &shsurf->shell->minimized_layer.view_list);
@@ -1475,10 +1252,10 @@ set_minimized(struct weston_surface *surface)
 	shell_surface_update_child_surface_layers(shsurf);
 }
 
-static int
+int
 black_surface_get_label(struct weston_surface *surface, char *buf, size_t len)
 {
-	struct weston_view *fs_view = surface->committed_private;
+	struct weston_view *fs_view = static_cast<struct weston_view *>(surface->committed_private);
 	struct weston_surface *fs_surface = fs_view->surface;
 	int n;
 	int rem;
@@ -1505,55 +1282,7 @@ black_surface_get_label(struct weston_surface *surface, char *buf, size_t len)
 
 
 
-static bool
-is_black_surface_view(struct weston_view *view, struct weston_view **fs_view)
-{
-	struct weston_surface *surface = view->surface;
 
-	if (surface->committed == black_surface_committed) {
-		if (fs_view)
-			*fs_view = surface->committed_private;
-		return true;
-	}
-	return false;
-}
-
-/* Set the shell surface as the current fullscreen view for its current output,
- * centering it with a black background */
-static void
-shell_set_view_fullscreen(ShellSurface *shsurf)
-{
-	struct weston_surface *surface =
-		weston_desktop_surface_get_surface(shsurf->desktop_surface);
-	struct weston_compositor *ec = surface->compositor;
-	struct weston_output *output = shsurf->fullscreen_output;
-	struct weston_curtain_params curtain_params = {
-		.r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0,
-		.pos = output->pos,
-		.width = output->width, .height = output->height,
-		.surface_committed = black_surface_committed,
-		.get_label = black_surface_get_label,
-		.surface_private = shsurf->view,
-		.capture_input = true,
-	};
-
-	assert(weston_desktop_surface_get_fullscreen(shsurf->desktop_surface));
-
-	weston_view_move_to_layer(shsurf->view,
-				  &shsurf->shell->fullscreen_layer.view_list);
-	weston_shell_utils_center_on_output(shsurf->view, shsurf->fullscreen_output);
-
-	if (!shsurf->fullscreen.black_view) {
-		shsurf->fullscreen.black_view =
-			weston_shell_utils_curtain_create(ec, &curtain_params);
-	}
-	weston_view_set_output(shsurf->fullscreen.black_view->view,
-			       shsurf->fullscreen_output);
-	weston_view_move_to_layer(shsurf->fullscreen.black_view->view,
-				  &shsurf->view->layer_link);
-
-	shsurf->state.lowered = false;
-}
 
 static void
 desktop_shell_destroy_seat(struct shell_seat *shseat)
@@ -1583,10 +1312,10 @@ destroy_tablet_tool_listener(struct wl_listener *listener, void *data)
 static void
 handle_tablet_tool_added(struct wl_listener *listener, void *data)
 {
-	struct weston_tablet_tool *tool = data;
+	struct weston_tablet_tool *tool = static_cast<struct weston_tablet_tool *>(data);
 	struct tablet_tool_listener *tool_listener;
 
-	tool_listener = malloc(sizeof *tool_listener);
+	tool_listener = static_cast<struct tablet_tool_listener *>(malloc(sizeof *tool_listener));
 	if (!tool_listener) {
 		weston_log("no memory to allocate to shell seat tablet listener\n");
 		return;
@@ -1635,7 +1364,7 @@ create_shell_seat(DesktopShell *shell, struct weston_seat *seat)
 	struct shell_seat *shseat;
 	struct weston_tablet_tool *tool;
 
-	shseat = calloc(1, sizeof *shseat);
+	shseat = static_cast<struct shell_seat *>(calloc(1, sizeof *shseat));
 	if (!shseat) {
 		weston_log("no memory to allocate shell seat\n");
 		return NULL;
@@ -1656,7 +1385,7 @@ create_shell_seat(DesktopShell *shell, struct weston_seat *seat)
 	wl_list_init(&shseat->tablet_tool_added_listener.link);
 
 	wl_list_for_each(tool, &seat->tablet_tool_list, link) {
-		struct tablet_tool_listener *listener = malloc(sizeof *listener);
+		struct tablet_tool_listener *listener = static_cast<struct tablet_tool_listener *>(malloc(sizeof *listener));
 
 		if (!listener) {
 			weston_log("no memory to allocate to shell seat tablet listener\n");
@@ -1697,26 +1426,7 @@ get_shell_seat(struct weston_seat *seat)
 			    struct shell_seat, seat_destroy_listener);
 }
 
-static void
-fade_out_done_idle_cb(void *data)
-{
-	ShellSurface *shsurf = data;
-	desktop_shell_destroy_surface(shsurf);
-}
 
-static void
-fade_out_done(struct weston_view_animation *animation, void *data)
-{
-	ShellSurface *shsurf = data;
-	struct wl_event_loop *loop;
-
-	loop = wl_display_get_event_loop(shsurf->shell->compositor->wl_display);
-
-	if (weston_view_is_mapped(shsurf->wview_anim_fade)) {
-		weston_view_move_to_layer(shsurf->wview_anim_fade, NULL);
-		wl_event_loop_add_idle(loop, fade_out_done_idle_cb, shsurf);
-	}
-}
 
 static ShellSurface *
 get_shell_surface(struct weston_surface *surface)
@@ -1750,7 +1460,7 @@ desktop_surface_added(struct weston_desktop_surface *desktop_surface,
 	if (!view)
 		return;
 
-	shsurf = calloc(1, sizeof *shsurf);
+	shsurf = new ShellSurface();
 	if (!shsurf) {
 		if (wl_client)
 			wl_client_post_no_memory(wl_client);
@@ -1769,8 +1479,8 @@ desktop_surface_added(struct weston_desktop_surface *desktop_surface,
 	shsurf->view = view;
 	shsurf->fullscreen.black_view = NULL;
 
-	shell_surface_set_output(
-		shsurf, weston_shell_utils_get_default_output(shsurf->shell->compositor));
+	shsurf->shell_surface_set_output(
+		weston_shell_utils_get_default_output(shsurf->shell->compositor));
 
 	wl_signal_init(&shsurf->destroy_signal);
 
@@ -1795,7 +1505,7 @@ desktop_surface_removed(struct weston_desktop_surface *desktop_surface,
 			void *shell)
 {
 	ShellSurface *shsurf =
-		weston_desktop_surface_get_user_data(desktop_surface);
+		static_cast<ShellSurface *>(weston_desktop_surface_get_user_data(desktop_surface));
 	struct weston_surface *surface =
 		weston_desktop_surface_get_surface(desktop_surface);
 	struct weston_seat *seat;
@@ -1859,7 +1569,7 @@ desktop_surface_removed(struct weston_desktop_surface *desktop_surface,
 		}
 	}
 
-	desktop_shell_destroy_surface(shsurf);
+	delete shsurf;
 }
 
 static void
@@ -1912,7 +1622,7 @@ map(DesktopShell *shell, ShellSurface *shsurf)
 
 	/* initial positioning, see also configure() */
 	if (shsurf->state.fullscreen) {
-		shell_set_view_fullscreen(shsurf);
+		shsurf->shell_set_view_fullscreen();
 	} else if (shsurf->state.maximized) {
 		set_maximized_position(shell, shsurf);
 	} else if (shsurf->xwayland.is_set) {
@@ -1925,7 +1635,7 @@ map(DesktopShell *shell, ShellSurface *shsurf)
 	weston_surface_map(surface);
 
 	/* Surface stacking order, see also activate(). */
-	shell_surface_update_layer(shsurf);
+	shsurf->shell_surface_update_layer();
 
 	if (shsurf->state.maximized) {
 		surface->output = shsurf->output;
@@ -1960,18 +1670,18 @@ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
 			  struct weston_coord_surface buf_offset, void *data)
 {
 	ShellSurface *shsurf =
-		weston_desktop_surface_get_user_data(desktop_surface);
+		static_cast<ShellSurface *>(weston_desktop_surface_get_user_data(desktop_surface));
 	struct weston_surface *surface =
 		weston_desktop_surface_get_surface(desktop_surface);
 	struct weston_view *view = shsurf->view;
-	DesktopShell *shell = data;
+	DesktopShell *shell = static_cast<DesktopShell *>(data);
 	bool was_fullscreen;
 	bool was_maximized;
 
 	if (!weston_surface_has_content(surface) &&
 	    weston_surface_is_unmapping(surface) &&
 	    shsurf->state.fullscreen) {
-		unset_fullscreen(shsurf);
+		shsurf->unset_fullscreen();
 		return;
 	}
 
@@ -2007,9 +1717,9 @@ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
 	    return;
 
 	if (was_fullscreen)
-		unset_fullscreen(shsurf);
+		shsurf->unset_fullscreen();
 	if (was_maximized)
-		unset_maximized(shsurf);
+		shsurf->unset_maximized();
 
 	if ((shsurf->state.fullscreen || shsurf->state.maximized) &&
 	    !shsurf->saved_position_valid) {
@@ -2065,66 +1775,6 @@ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
 	}
 }
 
-void
-ShellSurface::get_maximized_size(int32_t *width, int32_t *height)
-{
-	DesktopShell *shell;
-	pixman_rectangle32_t area;
-
-	shell = shell_surface_get_shell(this);
-	get_output_work_area(shell, this->output, &area);
-
-	*width = area.width;
-	*height = area.height;
-}
-
-static void
-set_fullscreen(ShellSurface *shsurf, bool fullscreen,
-	       struct weston_output *output)
-{
-	struct weston_desktop_surface *desktop_surface = shsurf->desktop_surface;
-	struct weston_surface *surface =
-		weston_desktop_surface_get_surface(shsurf->desktop_surface);
-
-	weston_desktop_surface_set_fullscreen(desktop_surface, fullscreen);
-	if (fullscreen) {
-		/* handle clients launching in fullscreen */
-		if (output == NULL && !weston_surface_is_mapped(surface)) {
-			/* Set the output to the one that has focus currently. */
-			output = weston_shell_utils_get_focused_output(surface->compositor);
-		}
-
-		shell_surface_set_output(shsurf, output);
-		shsurf->fullscreen_output = shsurf->output;
-
-		weston_desktop_surface_set_orientation(shsurf->desktop_surface,
-							WESTON_TOP_LEVEL_TILED_ORIENTATION_NONE);
-
-		set_shsurf_size_maximized_or_fullscreen(shsurf, false, fullscreen);
-	} else {
-		int width;
-		int height;
-
-		width = 0;
-		height = 0;
-		/* this is a corner case where we set up the surface as
-		 * maximized, then fullscreen, and back to maximized.
-		 *
-		 * we land here here when we're back from fullscreen and we
-		 * were previously maximized: rather than sending (0, 0) send
-		 * the area of the output minus the panels */
-		struct weston_desktop_surface *dsurface =
-			shsurf->desktop_surface;
-
-		if (weston_desktop_surface_get_maximized(dsurface) ||
-		    weston_desktop_surface_get_pending_maximized(dsurface)) {
-			get_maximized_size(shsurf, &width, &height);
-		}
-		weston_desktop_surface_set_size(shsurf->desktop_surface, width, height);
-	}
-
-}
-
 static void
 desktop_surface_move(struct weston_desktop_surface *desktop_surface,
 		     struct weston_seat *seat, uint32_t serial, void *shell)
@@ -2132,7 +1782,7 @@ desktop_surface_move(struct weston_desktop_surface *desktop_surface,
 	struct weston_pointer *pointer = weston_seat_get_pointer(seat);
 	struct weston_touch *touch = weston_seat_get_touch(seat);
 	ShellSurface *shsurf =
-		weston_desktop_surface_get_user_data(desktop_surface);
+		static_cast<ShellSurface *>(weston_desktop_surface_get_user_data(desktop_surface));
 	struct weston_surface *surface =
 		weston_desktop_surface_get_surface(shsurf->desktop_surface);
 	struct wl_resource *resource = surface->resource;
@@ -2144,7 +1794,7 @@ desktop_surface_move(struct weston_desktop_surface *desktop_surface,
 	    pointer->grab_serial == serial) {
 		focus = weston_surface_get_main_surface(pointer->focus->surface);
 		if ((focus == surface) &&
-		    (surface_move(shsurf, pointer, true) < 0))
+		    ((shsurf->surface_move(pointer, true)) < 0))
 			wl_resource_post_no_memory(resource);
 	} else if (touch &&
 		   touch->focus &&
@@ -2175,7 +1825,7 @@ desktop_surface_resize(struct weston_desktop_surface *desktop_surface,
 {
 	struct weston_pointer *pointer = weston_seat_get_pointer(seat);
 	ShellSurface *shsurf =
-		weston_desktop_surface_get_user_data(desktop_surface);
+		static_cast<ShellSurface *>(weston_desktop_surface_get_user_data(desktop_surface));
 	struct weston_surface *surface =
 		weston_desktop_surface_get_surface(shsurf->desktop_surface);
 	struct wl_resource *resource = surface->resource;
@@ -2191,7 +1841,7 @@ desktop_surface_resize(struct weston_desktop_surface *desktop_surface,
 	if (focus != surface)
 		return;
 
-	if (surface_resize(shsurf, pointer, edges) < 0)
+	if (shsurf->surface_resize(pointer, edges) < 0)
 		wl_resource_post_no_memory(resource);
 }
 
@@ -2202,13 +1852,13 @@ desktop_surface_set_parent(struct weston_desktop_surface *desktop_surface,
 {
 	ShellSurface *shsurf_parent;
 	ShellSurface *shsurf =
-		weston_desktop_surface_get_user_data(desktop_surface);
+		static_cast<ShellSurface *>(weston_desktop_surface_get_user_data(desktop_surface));
 
 	/* unlink any potential child */
 	wl_list_remove(&shsurf->children_link);
 
 	if (parent) {
-		shsurf_parent = weston_desktop_surface_get_user_data(parent);
+		shsurf_parent = static_cast<ShellSurface *>(weston_desktop_surface_get_user_data(parent));
 		wl_list_insert(shsurf_parent->children_list.prev,
 			       &shsurf->children_link);
 	} else {
@@ -2222,46 +1872,21 @@ desktop_surface_fullscreen_requested(struct weston_desktop_surface *desktop_surf
 				     struct weston_output *output, void *shell)
 {
 	ShellSurface *shsurf =
-		weston_desktop_surface_get_user_data(desktop_surface);
+		static_cast<ShellSurface *>(weston_desktop_surface_get_user_data(desktop_surface));
 
-	set_fullscreen(shsurf, fullscreen, output);
+	shsurf->set_fullscreen(fullscreen, output);
 }
 
-static void
-set_maximized(ShellSurface *shsurf, bool maximized)
-{
-	struct weston_desktop_surface *desktop_surface = shsurf->desktop_surface;
-	struct weston_surface *surface =
-		weston_desktop_surface_get_surface(shsurf->desktop_surface);
 
-	if (weston_desktop_surface_get_fullscreen(desktop_surface))
-		return;
-
-	if (maximized) {
-		struct weston_output *output;
-
-		if (!weston_surface_is_mapped(surface))
-			output = weston_shell_utils_get_focused_output(surface->compositor);
-		else
-			output = surface->output;
-
-		shell_surface_set_output(shsurf, output);
-
-		weston_desktop_surface_set_orientation(shsurf->desktop_surface,
-							WESTON_TOP_LEVEL_TILED_ORIENTATION_NONE);
-	}
-	weston_desktop_surface_set_maximized(desktop_surface, maximized);
-	set_shsurf_size_maximized_or_fullscreen(shsurf, maximized, false);
-}
 
 static void
 desktop_surface_maximized_requested(struct weston_desktop_surface *desktop_surface,
 				    bool maximized, void *shell)
 {
 	ShellSurface *shsurf =
-		weston_desktop_surface_get_user_data(desktop_surface);
+		static_cast<ShellSurface *>(weston_desktop_surface_get_user_data(desktop_surface));
 
-	set_maximized(shsurf, maximized);
+	shsurf->set_maximized(maximized);
 }
 
 static void
@@ -2312,8 +1937,8 @@ desktop_surface_set_unresponsive(struct weston_desktop_surface *desktop_surface,
 				 void *user_data)
 {
 	ShellSurface *shsurf =
-		weston_desktop_surface_get_user_data(desktop_surface);
-	bool *unresponsive = user_data;
+		static_cast<ShellSurface *>(weston_desktop_surface_get_user_data(desktop_surface));
+	bool *unresponsive = static_cast<bool *>(user_data);
 
 	shsurf->unresponsive = *unresponsive;
 }
@@ -2322,7 +1947,7 @@ static void
 desktop_surface_ping_timeout(struct weston_desktop_client *desktop_client,
 			     void *shell_)
 {
-	DesktopShell *shell = shell_;
+	DesktopShell *shell = static_cast<DesktopShell *>(shell_);
 	ShellSurface *shsurf;
 	struct weston_seat *seat;
 	bool unresponsive = true;
@@ -2346,7 +1971,7 @@ desktop_surface_ping_timeout(struct weston_desktop_client *desktop_client,
 		grab_client =
 			weston_desktop_surface_get_client(shsurf->desktop_surface);
 		if (grab_client == desktop_client)
-			set_busy_cursor(shsurf, pointer);
+			shsurf->set_busy_cursor(pointer);
 	}
 }
 
@@ -2354,7 +1979,7 @@ static void
 desktop_surface_pong(struct weston_desktop_client *desktop_client,
 		     void *shell_)
 {
-	DesktopShell *shell = shell_;
+	DesktopShell *shell = static_cast<DesktopShell *>(shell_);
 	bool unresponsive = false;
 
 	weston_desktop_client_for_each_surface(desktop_client,
@@ -2368,7 +1993,7 @@ desktop_surface_set_xwayland_position(struct weston_desktop_surface *surface,
 				      struct weston_coord_global pos, void *shell_)
 {
 	ShellSurface *shsurf =
-		weston_desktop_surface_get_user_data(surface);
+		static_cast<ShellSurface *>(weston_desktop_surface_get_user_data(surface));
 
 	shsurf->xwayland.pos = pos;
 	shsurf->xwayland.is_set = true;
@@ -2379,7 +2004,7 @@ desktop_surface_get_position(struct weston_desktop_surface *surface,
 			     int32_t *x, int32_t *y,
 			     void *shell_)
 {
-	ShellSurface *shsurf = weston_desktop_surface_get_user_data(surface);
+	ShellSurface *shsurf = static_cast<ShellSurface *>(weston_desktop_surface_get_user_data(surface));
 
 	*x = shsurf->view->geometry.pos_offset.x;
 	*y = shsurf->view->geometry.pos_offset.y;
@@ -2387,17 +2012,17 @@ desktop_surface_get_position(struct weston_desktop_surface *surface,
 
 static const struct weston_desktop_api shell_desktop_api = {
 	.struct_size = sizeof(struct weston_desktop_api),
+	.ping_timeout = desktop_surface_ping_timeout,
+	.pong = desktop_surface_pong,
 	.surface_added = desktop_surface_added,
 	.surface_removed = desktop_surface_removed,
 	.committed = desktop_surface_committed,
+	.set_parent = desktop_surface_set_parent,
 	.move = desktop_surface_move,
 	.resize = desktop_surface_resize,
-	.set_parent = desktop_surface_set_parent,
 	.fullscreen_requested = desktop_surface_fullscreen_requested,
 	.maximized_requested = desktop_surface_maximized_requested,
 	.minimized_requested = desktop_surface_minimized_requested,
-	.ping_timeout = desktop_surface_ping_timeout,
-	.pong = desktop_surface_pong,
 	.set_xwayland_position = desktop_surface_set_xwayland_position,
 	.get_position = desktop_surface_get_position,
 };
@@ -2416,7 +2041,7 @@ static void
 background_committed(struct weston_surface *es,
 		     struct weston_coord_surface new_origin)
 {
-	ShellOutput *sh_output = es->committed_private;
+	ShellOutput *sh_output = static_cast<ShellOutput *>(es->committed_private);
 	DesktopShell *shell = sh_output->shell;
 
 	if (!weston_surface_has_content(es))
@@ -2452,9 +2077,9 @@ desktop_shell_set_background(struct wl_client *client,
 			     struct wl_resource *output_resource,
 			     struct wl_resource *surface_resource)
 {
-	DesktopShell *shell = wl_resource_get_user_data(resource);
+	DesktopShell *shell = static_cast<DesktopShell *>(wl_resource_get_user_data(resource));
 	struct weston_surface *surface =
-		wl_resource_get_user_data(surface_resource);
+		static_cast<struct weston_surface *>(wl_resource_get_user_data(surface_resource));
 	ShellOutput *sh_output;
 	struct weston_head *head = weston_head_from_resource(output_resource);
 
@@ -2505,7 +2130,7 @@ static void
 panel_committed(struct weston_surface *es,
 		struct weston_coord_surface new_origin)
 {
-	ShellOutput *sh_output = es->committed_private;
+	ShellOutput *sh_output = static_cast<ShellOutput *>(es->committed_private);
 	struct weston_output *output = sh_output->output;
 	struct weston_coord_global pos = output->pos;
 	DesktopShell *shell = sh_output->shell;
@@ -2563,9 +2188,8 @@ desktop_shell_set_panel(struct wl_client *client,
 			struct wl_resource *output_resource,
 			struct wl_resource *surface_resource)
 {
-	DesktopShell *shell = wl_resource_get_user_data(resource);
-	struct weston_surface *surface =
-		wl_resource_get_user_data(surface_resource);
+	DesktopShell *shell = static_cast<DesktopShell *>(wl_resource_get_user_data(resource));
+	struct weston_surface *surface = static_cast<struct weston_surface *>(wl_resource_get_user_data(surface_resource));
 	ShellOutput *sh_output;
 	struct weston_head *head = weston_head_from_resource(output_resource);
 
@@ -2617,7 +2241,7 @@ dock_get_label(struct weston_surface *surface, char *buf, size_t len)
 static void
 dock_committed(struct weston_surface *es, struct weston_coord_surface new_origin)
 {
-	ShellOutput *sh_output = es->committed_private;
+	ShellOutput *sh_output = static_cast<ShellOutput *>(es->committed_private);
 	struct weston_output *output = sh_output->output;
 	struct weston_coord_global pos = output->pos;
 	DesktopShell *shell = sh_output->shell;
@@ -2669,9 +2293,9 @@ desktop_shell_set_dock(struct wl_client *client,
                        struct wl_resource *output_resource,
                        struct wl_resource *surface_resource)
 {
-    DesktopShell *shell = wl_resource_get_user_data(resource);
-	struct weston_surface *surface = wl_resource_get_user_data(surface_resource);
-    ShellOutput *sh_output = wl_resource_get_user_data(output_resource);
+    DesktopShell *shell = static_cast<DesktopShell *>(wl_resource_get_user_data(resource));
+	struct weston_surface *surface = static_cast<struct weston_surface *>(wl_resource_get_user_data(surface_resource));
+    ShellOutput *sh_output = static_cast<ShellOutput *>(wl_resource_get_user_data(output_resource));
     struct weston_head *head = weston_head_from_resource(output_resource);
 
 	if (surface->committed) {
@@ -2714,9 +2338,9 @@ desktop_shell_set_dock_position(struct wl_client *client,
 				 struct wl_resource *resource,
 				 uint32_t position)
 {
-	DesktopShell *shell = wl_resource_get_user_data(resource);
+	DesktopShell *shell = static_cast<DesktopShell *>(wl_resource_get_user_data(resource));
 
-	shell->dock_position = position;
+	shell->dock_position = static_cast<weston_desktop_shell_dock_position>(position);
 }
 
 static void
@@ -2740,7 +2364,7 @@ static void
 lock_surface_committed(struct weston_surface *surface,
 		       struct weston_coord_surface new_origin)
 {
-	DesktopShell *shell = surface->committed_private;
+	DesktopShell *shell = static_cast<DesktopShell *>(surface->committed_private);
 
 	if (!weston_surface_has_content(surface))
 		return;
@@ -2756,7 +2380,7 @@ lock_surface_committed(struct weston_surface *surface,
 		weston_shell_utils_get_default_output(shell->compositor));
 	weston_view_move_to_layer(shell->lock_view,
 				  &shell->lock_layer.view_list);
-	shell_fade(shell, FADE_IN);
+	shell->shell_fade(FADE_IN);
 }
 
 static void
@@ -2774,9 +2398,9 @@ desktop_shell_set_lock_surface(struct wl_client *client,
 			       struct wl_resource *resource,
 			       struct wl_resource *surface_resource)
 {
-	DesktopShell *shell = wl_resource_get_user_data(resource);
+	DesktopShell *shell = static_cast<DesktopShell *>(wl_resource_get_user_data(resource));
 	struct weston_surface *surface =
-		wl_resource_get_user_data(surface_resource);
+		static_cast<struct weston_surface *>(wl_resource_get_user_data(surface_resource));
 
 	shell->prepare_event_sent = false;
 
@@ -2806,12 +2430,12 @@ static void
 desktop_shell_unlock(struct wl_client *client,
 		     struct wl_resource *resource)
 {
-	DesktopShell *shell = wl_resource_get_user_data(resource);
+	DesktopShell *shell = static_cast<DesktopShell *>(wl_resource_get_user_data(resource));
 
 	shell->prepare_event_sent = false;
 
 	if (shell->locked)
-		resume_desktop(shell);
+		shell->resume_desktop();
 }
 
 static void
@@ -2819,9 +2443,9 @@ desktop_shell_set_grab_surface(struct wl_client *client,
 			       struct wl_resource *resource,
 			       struct wl_resource *surface_resource)
 {
-	DesktopShell *shell = wl_resource_get_user_data(resource);
+	DesktopShell *shell = static_cast<DesktopShell *>(wl_resource_get_user_data(resource));
 
-	shell->grab_surface = wl_resource_get_user_data(surface_resource);
+	shell->grab_surface = static_cast<struct weston_surface *>(wl_resource_get_user_data(surface_resource));
 	weston_view_create(shell->grab_surface);
 }
 
@@ -2829,9 +2453,9 @@ static void
 desktop_shell_desktop_ready(struct wl_client *client,
 			    struct wl_resource *resource)
 {
-	DesktopShell *shell = wl_resource_get_user_data(resource);
+	DesktopShell *shell = static_cast<DesktopShell *>(wl_resource_get_user_data(resource));
 
-	shell_fade_startup(shell);
+	shell->shell_fade_startup();
 }
 
 static void
@@ -2839,7 +2463,7 @@ desktop_shell_set_panel_position(struct wl_client *client,
 				 struct wl_resource *resource,
 				 uint32_t position)
 {
-	DesktopShell *shell = wl_resource_get_user_data(resource);
+	DesktopShell *shell = static_cast<DesktopShell *>(wl_resource_get_user_data(resource));
 
 	if (position != WESTON_DESKTOP_SHELL_PANEL_POSITION_TOP &&
 	    position != WESTON_DESKTOP_SHELL_PANEL_POSITION_BOTTOM &&
@@ -2851,7 +2475,7 @@ desktop_shell_set_panel_position(struct wl_client *client,
 		return;
 	}
 
-	shell->panel_position = position;
+	shell->panel_position = static_cast<enum weston_desktop_shell_panel_position>(position);
 }
 
 static const struct weston_desktop_shell_interface desktop_shell_implementation = {
@@ -2884,10 +2508,10 @@ move_binding(struct weston_pointer *pointer, const struct timespec *time,
 		return;
 
 	shsurf = get_shell_surface(surface);
-	if (shsurf == NULL || shsurf_is_max_or_fullscreen(shsurf))
+	if (shsurf == nullptr || shsurf->shsurf_is_max_or_fullscreen())
 		return;
 
-	surface_move(shsurf, pointer, false);
+	shsurf->surface_move(pointer, false);
 }
 
 static void
@@ -2906,7 +2530,7 @@ maximize_binding(struct weston_keyboard *keyboard, const struct timespec *time,
 	if (shsurf == NULL)
 		return;
 
-	set_maximized(shsurf, !weston_desktop_surface_get_maximized(shsurf->desktop_surface));
+	shsurf->set_maximized(!weston_desktop_surface_get_maximized(shsurf->desktop_surface));
 }
 
 static void
@@ -2929,7 +2553,7 @@ fullscreen_binding(struct weston_keyboard *keyboard,
 	fullscreen =
 		weston_desktop_surface_get_fullscreen(shsurf->desktop_surface);
 
-	set_fullscreen(shsurf, !fullscreen, NULL);
+	shsurf->set_fullscreen(!fullscreen, nullptr);
 }
 
 static void
@@ -2953,7 +2577,7 @@ set_tiled_orientation(struct weston_surface *focus,
 		return;
 
 	shsurf->orientation = orientation;
-	get_maximized_size(shsurf, &width, &height);
+	shsurf->get_maximized_size(&width, &height);
 	get_output_work_area(shsurf->shell, shsurf->output, &area);
 	geom = weston_desktop_surface_get_geometry(shsurf->desktop_surface);
 
@@ -3027,7 +2651,7 @@ touch_move_binding(struct weston_touch *touch, const struct timespec *time, void
 		return;
 
 	shsurf = get_shell_surface(surface);
-	if (shsurf == NULL || shsurf_is_max_or_fullscreen(shsurf))
+	if (shsurf == NULL || shsurf->shsurf_is_max_or_fullscreen())
 		return;
 
 	surface_touch_move(shsurf, touch);
@@ -3054,7 +2678,7 @@ resize_binding(struct weston_pointer *pointer, const struct timespec *time,
 		return;
 
 	shsurf = get_shell_surface(surface);
-	if (shsurf == NULL || shsurf_is_max_or_fullscreen(shsurf))
+	if (shsurf == NULL || shsurf->shsurf_is_max_or_fullscreen())
 		return;
 
 	surf_pos = weston_coord_global_to_surface(shsurf->view, pointer->grab_pos);
@@ -3075,7 +2699,7 @@ resize_binding(struct weston_pointer *pointer, const struct timespec *time,
 	else
 		edges |= WESTON_DESKTOP_SURFACE_EDGE_BOTTOM;
 
-	surface_resize(shsurf, pointer, edges);
+	shsurf->surface_resize(pointer, edges);
 }
 
 static void
@@ -3109,7 +2733,7 @@ static void
 terminate_binding(struct weston_keyboard *keyboard, const struct timespec *time,
 		  uint32_t key, void *data)
 {
-	struct weston_compositor *compositor = data;
+	struct weston_compositor *compositor = static_cast<struct weston_compositor *>(data);
 
 	weston_compositor_exit(compositor);
 }
@@ -3191,7 +2815,7 @@ rotate_grab_button(struct weston_pointer_grab *grab,
 		container_of(grab, struct rotate_grab, base.grab);
 	struct weston_pointer *pointer = grab->pointer;
 	ShellSurface *shsurf = rotate->base.shsurf;
-	enum wl_pointer_button_state state = state_w;
+	enum wl_pointer_button_state state = static_cast<enum wl_pointer_button_state>(state_w);
 
 	if (pointer->button_count == 0 &&
 	    state == WL_POINTER_BUTTON_STATE_RELEASED) {
@@ -3213,7 +2837,7 @@ rotate_grab_cancel(struct weston_pointer_grab *grab)
 	free(rotate);
 }
 
-static const struct weston_pointer_grab_interface rotate_grab_interface = {
+const struct weston_pointer_grab_interface rotate_grab_interface = {
 	noop_grab_focus,
 	rotate_grab_motion,
 	rotate_grab_button,
@@ -3243,10 +2867,10 @@ rotate_binding(struct weston_pointer *pointer, const struct timespec *time,
 		return;
 
 	surface = get_shell_surface(base_surface);
-	if (surface == NULL || shsurf_is_max_or_fullscreen(surface))
+	if (surface == NULL || surface->shsurf_is_max_or_fullscreen())
 		return;
 
-	surface_rotate(surface, pointer);
+	surface->surface_rotate(pointer);
 }
 
 /* Move all fullscreen layers down to the current Workspace and hide their
@@ -3266,7 +2890,7 @@ lower_fullscreen_layer(DesktopShell *shell,
 	Workspace *ws;
 	struct weston_view *view, *prev;
 
-	ws = get_current_Workspace(shell);
+	ws = shell->get_current_workspace();
 	wl_list_for_each_reverse_safe(view, prev,
 				      &shell->fullscreen_layer.view_list.link,
 				      layer_link.link) {
@@ -3338,11 +2962,11 @@ activate(DesktopShell *shell, struct weston_view *view,
 		ShellSurface *current_focus =
 			get_shell_surface(shseat->focused_surface);
 		assert(current_focus);
-		shell_surface_deactivate(current_focus);
+		current_focus->shell_surface_deactivate();
 	}
 
 	if (shseat && shseat->focused_surface != main_surface) {
-		shell_surface_activate(shsurf);
+		shsurf->shell_surface_activate();
 		shseat->focused_surface = main_surface;
 	}
 
@@ -3355,15 +2979,15 @@ activate(DesktopShell *shell, struct weston_view *view,
 
 	if (weston_desktop_surface_get_fullscreen(shsurf->desktop_surface) &&
 	    flags & WESTON_ACTIVATE_FLAG_CONFIGURE)
-		shell_set_view_fullscreen(shsurf);
+		shsurf->shell_set_view_fullscreen();
 
 	/* Update the surface’s layer. This brings it to the top of the stacking
 	 * order as appropriate. */
-	shell_surface_update_layer(shsurf);
+	shsurf->shell_surface_update_layer();
 
 	if (shell->focus_animation_type != ANIMATION_NONE) {
 		assert(shell->focus_animation_type == ANIMATION_DIM_LAYER);
-		ws = get_current_Workspace(shell);
+		ws = shell->get_current_workspace();
 		animate_focus_change(shell, ws, get_default_view(old_es), get_default_view(es));
 	}
 }
@@ -3400,7 +3024,7 @@ click_to_activate_binding(struct weston_pointer *pointer,
 	if (pointer->focus == NULL)
 		return;
 
-	activate_binding(pointer->seat, data, pointer->focus,
+	activate_binding(pointer->seat, static_cast<DesktopShell *>(data), pointer->focus,
 			 WESTON_ACTIVATE_FLAG_CLICKED |
 			 WESTON_ACTIVATE_FLAG_CONFIGURE);
 }
@@ -3415,7 +3039,7 @@ touch_to_activate_binding(struct weston_touch *touch,
 	if (touch->focus == NULL)
 		return;
 
-	activate_binding(touch->seat, data, touch->focus,
+	activate_binding(touch->seat, static_cast<DesktopShell *>(data), touch->focus,
 			 WESTON_ACTIVATE_FLAG_CONFIGURE);
 }
 
@@ -3428,12 +3052,12 @@ tablet_tool_activate_binding(struct weston_tablet_tool *tool,
 	if (tool->focus == NULL)
 		return;
 
-	activate_binding(tool->seat, data, tool->focus,
+	activate_binding(tool->seat, static_cast<DesktopShell *>(data), tool->focus,
 			WESTON_ACTIVATE_FLAG_CLICKED |
 			WESTON_ACTIVATE_FLAG_CONFIGURE);
 }
 
-static void
+void
 unfocus_all_seats(DesktopShell *shell)
 {
 	struct weston_seat *seat, *next;
@@ -3466,7 +3090,7 @@ idle_handler(struct wl_listener *listener, void *data)
 	wl_list_for_each(seat, &shell->compositor->seat_list, link)
 		weston_seat_break_desktop_grabs(seat);
 
-	shell_fade(shell, FADE_OUT);
+	shell->shell_fade(FADE_OUT);
 	/* lock() is called from shell_fade_done() */
 }
 
@@ -3476,13 +3100,13 @@ wake_handler(struct wl_listener *listener, void *data)
 	DesktopShell *shell =
 		container_of(listener, DesktopShell, wake_listener);
 
-	unlock(shell);
+	shell->unlock();
 }
 
 static void
 transform_handler(struct wl_listener *listener, void *data)
 {
-	struct weston_surface *surface = data;
+	struct weston_surface *surface = static_cast<struct weston_surface *>(data);
 	ShellSurface *shsurf = get_shell_surface(surface);
 	const struct weston_xwayland_surface_api *api;
 	int x, y;
@@ -3490,7 +3114,7 @@ transform_handler(struct wl_listener *listener, void *data)
 	if (!shsurf)
 		return;
 
-	shell_surface_set_output(shsurf, shsurf->view->output);
+	shsurf->shell_surface_set_output(shsurf->view->output);
 
 	api = shsurf->shell->xwayland_surface_api;
 	if (!api) {
@@ -3510,7 +3134,7 @@ transform_handler(struct wl_listener *listener, void *data)
 	api->send_position(surface, x, y);
 }
 
-static void
+void
 weston_view_set_initial_position(struct weston_view *view,
 				 DesktopShell *shell)
 {
@@ -3646,13 +3270,13 @@ desktop_shell_client_destroy(struct wl_listener *listener, void *data)
 		respawn_desktop_shell_process(shell);
 	}
 
-	shell_fade_startup(shell);
+	shell->shell_fade_startup();
 }
 
 static void
 launch_desktop_shell_process(void *data)
 {
-	DesktopShell *shell = data;
+	DesktopShell *shell = static_cast<DesktopShell *>(data);
 
 	shell->child.client = wet_client_start(shell->compositor,
 					       shell->client);
@@ -3671,12 +3295,12 @@ launch_desktop_shell_process(void *data)
 static void
 unbind_desktop_shell(struct wl_resource *resource)
 {
-	DesktopShell *shell = wl_resource_get_user_data(resource);
+	DesktopShell *shell = static_cast<DesktopShell *>(wl_resource_get_user_data(resource));
 
 	if (shell->locked)
-		resume_desktop(shell);
+		shell->resume_desktop();
 
-	shell->child.desktop_shell = NULL;
+	shell->child.desktop_shell = nullptr;
 	shell->prepare_event_sent = false;
 }
 
@@ -3684,7 +3308,7 @@ static void
 bind_desktop_shell(struct wl_client *client,
 		   void *data, uint32_t version, uint32_t id)
 {
-	DesktopShell *shell = data;
+	DesktopShell *shell = static_cast<DesktopShell *>(data);
 	struct wl_resource *resource;
 
 	resource = wl_resource_create(client, &weston_desktop_shell_interface,
@@ -3702,121 +3326,42 @@ bind_desktop_shell(struct wl_client *client,
 			       "permission to bind desktop_shell denied");
 }
 
-struct switcher {
-	DesktopShell *shell;
-	struct weston_view *current;
-	struct wl_listener listener;
-	struct weston_keyboard_grab grab;
-	struct wl_array minimized_array;
-};
+
 
 static void
-switcher_next(struct switcher *switcher)
+switcher_binding(struct weston_keyboard *keyboard, const struct timespec *time,
+		 uint32_t key, void *data)
 {
-	struct weston_view *view;
-	struct weston_view *first = NULL, *prev = NULL, *next = NULL;
-	ShellSurface *shsurf;
-	Workspace *ws = get_current_Workspace(switcher->shell);
+	DesktopShell *shell = static_cast<DesktopShell *>(data);
+	Switcher *switcher;
 
-	 /* temporary re-display minimized surfaces */
-	struct weston_view *tmp;
-	struct weston_view **minimized;
-	wl_list_for_each_safe(view, tmp, &switcher->shell->minimized_layer.view_list.link, layer_link.link) {
-		weston_view_move_to_layer(view, &ws->layer.view_list);
-		minimized = wl_array_add(&switcher->minimized_array, sizeof *minimized);
-		*minimized = view;
-	}
-
-	wl_list_for_each(view, &ws->layer.view_list.link, layer_link.link) {
-		shsurf = get_shell_surface(view->surface);
-		if (shsurf) {
-			if (first == NULL)
-				first = view;
-			if (prev == switcher->current)
-				next = view;
-			prev = view;
-			weston_view_set_alpha(view, 0.25);
-		}
-
-		if (is_black_surface_view(view, NULL))
-			weston_view_set_alpha(view, 0.25);
-	}
-
-	if (next == NULL)
-		next = first;
-
-	if (next == NULL)
+	//switcher = malloc(sizeof *switcher);
+	switcher = new Switcher();
+	if (!switcher)
 		return;
 
-	wl_list_remove(&switcher->listener.link);
-	wl_signal_add(&next->destroy_signal, &switcher->listener);
+	switcher->shell = shell;
+	switcher->current = nullptr;
+	switcher->listener.notify = Switcher::switcher_handle_view_destroy;
+	wl_list_init(&switcher->listener.link);
+	wl_array_init(&switcher->minimized_array);
 
-	switcher->current = next;
-	wl_list_for_each(view, &next->surface->views, surface_link)
-		weston_view_set_alpha(view, 1.0);
-
-	shsurf = get_shell_surface(switcher->current->surface);
-	if (shsurf && weston_desktop_surface_get_fullscreen(shsurf->desktop_surface))
-		weston_view_set_alpha(shsurf->fullscreen.black_view->view, 1.0);
-}
-
-static void
-switcher_handle_view_destroy(struct wl_listener *listener, void *data)
-{
-	struct switcher *switcher =
-		container_of(listener, struct switcher, listener);
-
-	switcher_next(switcher);
-}
-
-static void
-switcher_destroy(struct switcher *switcher)
-{
-	struct weston_view *view;
-	struct weston_keyboard *keyboard = switcher->grab.keyboard;
-	Workspace *ws = get_current_Workspace(switcher->shell);
-
-	wl_list_for_each(view, &ws->layer.view_list.link, layer_link.link) {
-		if (is_focus_view(view))
-			continue;
-
-		weston_view_set_alpha(view, 1.0);
-	}
-
-	if (switcher->current && get_shell_surface(switcher->current->surface)) {
-		activate(switcher->shell, switcher->current,
-			 keyboard->seat,
-			 WESTON_ACTIVATE_FLAG_CONFIGURE);
-	}
-
-	wl_list_remove(&switcher->listener.link);
-	weston_keyboard_end_grab(keyboard);
-	if (keyboard->input_method_resource)
-		keyboard->grab = &keyboard->input_method_grab;
-
-	 /* re-hide surfaces that were temporary shown during the switch */
-	struct weston_view **minimized;
-	wl_array_for_each(minimized, &switcher->minimized_array) {
-		/* with the exception of the current selected */
-		if ((*minimized)->surface == switcher->current->surface)
-			continue;
-		weston_view_move_to_layer(*minimized,
-					  &switcher->shell->minimized_layer.view_list);
-	}
-	wl_array_release(&switcher->minimized_array);
-
-	free(switcher);
+	lower_fullscreen_layer(switcher->shell, nullptr);
+	switcher->grab.interface = &switcher_grab;
+	weston_keyboard_start_grab(keyboard, &switcher->grab);
+	weston_keyboard_set_focus(keyboard, nullptr);
+	switcher->switcher_next();
 }
 
 static void
 switcher_key(struct weston_keyboard_grab *grab,
 	     const struct timespec *time, uint32_t key, uint32_t state_w)
 {
-	struct switcher *switcher = container_of(grab, struct switcher, grab);
-	enum wl_keyboard_key_state state = state_w;
+	Switcher *switcher = container_of(grab, Switcher, grab);
+	enum wl_keyboard_key_state state = static_cast<wl_keyboard_key_state>(state_w);
 
 	if (key == KEY_TAB && state == WL_KEYBOARD_KEY_STATE_PRESSED)
-		switcher_next(switcher);
+		switcher->switcher_next();
 }
 
 static void
@@ -3824,19 +3369,19 @@ switcher_modifier(struct weston_keyboard_grab *grab, uint32_t serial,
 		  uint32_t mods_depressed, uint32_t mods_latched,
 		  uint32_t mods_locked, uint32_t group)
 {
-	struct switcher *switcher = container_of(grab, struct switcher, grab);
+	Switcher *switcher = container_of(grab, Switcher, grab);
 	struct weston_seat *seat = grab->keyboard->seat;
 
 	if ((seat->modifier_state & switcher->shell->binding_modifier) == 0)
-		switcher_destroy(switcher);
+		delete switcher;
 }
 
 static void
 switcher_cancel(struct weston_keyboard_grab *grab)
 {
-	struct switcher *switcher = container_of(grab, struct switcher, grab);
+	Switcher *switcher = container_of(grab, Switcher, grab);
 
-	switcher_destroy(switcher);
+	delete (switcher);
 }
 
 static const struct weston_keyboard_grab_interface switcher_grab = {
@@ -3845,35 +3390,13 @@ static const struct weston_keyboard_grab_interface switcher_grab = {
 	switcher_cancel,
 };
 
-static void
-switcher_binding(struct weston_keyboard *keyboard, const struct timespec *time,
-		 uint32_t key, void *data)
-{
-	DesktopShell *shell = data;
-	struct switcher *switcher;
 
-	switcher = malloc(sizeof *switcher);
-	if (!switcher)
-		return;
-
-	switcher->shell = shell;
-	switcher->current = NULL;
-	switcher->listener.notify = switcher_handle_view_destroy;
-	wl_list_init(&switcher->listener.link);
-	wl_array_init(&switcher->minimized_array);
-
-	lower_fullscreen_layer(switcher->shell, NULL);
-	switcher->grab.interface = &switcher_grab;
-	weston_keyboard_start_grab(keyboard, &switcher->grab);
-	weston_keyboard_set_focus(keyboard, NULL);
-	switcher_next(switcher);
-}
 
 static void
 backlight_binding(struct weston_keyboard *keyboard, const struct timespec *time,
 		  uint32_t key, void *data)
 {
-	struct weston_compositor *compositor = data;
+	struct weston_compositor *compositor = static_cast<struct weston_compositor *>(data);
 	struct weston_output *output;
 	long backlight_new = 0;
 
@@ -3908,7 +3431,7 @@ force_kill_binding(struct weston_keyboard *keyboard,
 {
 	struct weston_surface *focus_surface;
 	struct wl_client *client;
-	DesktopShell *shell = data;
+	DesktopShell *shell = static_cast<DesktopShell *>(data);
 	struct weston_compositor *compositor = shell->compositor;
 	pid_t pid;
 
@@ -3979,8 +3502,8 @@ shell_reposition_view_on_output_change(struct weston_view *view)
 
 
 	shsurf->saved_position_valid = false;
-	set_maximized(shsurf, false);
-	set_fullscreen(shsurf, false, NULL);
+	shsurf->set_maximized(false);
+	shsurf->set_fullscreen(false, NULL);
 }
 
 void
@@ -3992,10 +3515,10 @@ shell_for_each_layer(DesktopShell *shell,
 	func(shell, &shell->background_layer, data);
 	func(shell, &shell->lock_layer, data);
 	func(shell, &shell->input_panel_layer, data);
-	func(shell, &shell->Workspace.layer, data);
+	func(shell, &shell->workspace.layer, data);
 }
 
-static void
+void
 shell_output_changed_move_layer(DesktopShell *shell,
 				struct weston_layer *layer,
 				void *data)
@@ -4023,7 +3546,7 @@ shell_output_destroy(ShellOutput *shell_output)
 	free(shell_output);
 }
 
-static void
+void
 handle_output_destroy(struct wl_listener *listener, void *data)
 {
 	ShellOutput *shell_output =
@@ -4062,7 +3585,7 @@ handle_output_resized_shsurfs(DesktopShell *shell)
 				weston_desktop_surface_get_fullscreen(dsurface);
 
 			if (is_maximized || is_fullscreen) {
-				set_shsurf_size_maximized_or_fullscreen(shsurf,
+				shsurf->set_shsurf_size_maximized_or_fullscreen(
 									is_maximized,
 									is_fullscreen);
 			}
@@ -4099,7 +3622,7 @@ static void
 handle_output_move_layer(DesktopShell *shell,
 			 struct weston_layer *layer, void *data)
 {
-	struct weston_output *output = data;
+	struct weston_output *output = static_cast<struct weston_output *>(data);
 	struct weston_view *view;
 
 	wl_list_for_each(view, &layer->view_list.link, layer_link.link) {
@@ -4132,7 +3655,7 @@ setup_output_destroy_handler(struct weston_compositor *ec,
 	struct weston_output *output;
 
 	wl_list_for_each(output, &ec->output_list, link)
-		create_shell_output(shell, output);
+		new ShellOutput(shell, output);
 
 	shell->output_create_listener.notify = handle_output_create;
 	wl_signal_add(&ec->output_created_signal,
@@ -4174,7 +3697,7 @@ desktop_shell_destroy_layer(struct weston_layer *layer)
 			ShellSurface *shsurf =
 				get_shell_surface(view->surface);
 			if (shsurf) {
-				desktop_shell_destroy_surface(shsurf);
+				delete shsurf;
 				removed = true;
 				break;
 			}
@@ -4254,24 +3777,24 @@ shell_add_bindings(struct weston_compositor *ec, DesktopShell *shell)
 
 	if (shell->allow_zap)
 		weston_compositor_add_key_binding(ec, KEY_BACKSPACE,
-					          MODIFIER_CTRL | MODIFIER_ALT,
+					          static_cast<enum weston_keyboard_modifier>(MODIFIER_CTRL | MODIFIER_ALT),
 					          terminate_binding, ec);
 
 	/* fixed bindings */
-	weston_compositor_add_button_binding(ec, BTN_LEFT, 0,
+	weston_compositor_add_button_binding(ec, BTN_LEFT, static_cast<enum weston_keyboard_modifier>(0),
 					     click_to_activate_binding,
 					     shell);
-	weston_compositor_add_button_binding(ec, BTN_RIGHT, 0,
+	weston_compositor_add_button_binding(ec, BTN_RIGHT, static_cast<enum weston_keyboard_modifier>(0),
 					     click_to_activate_binding,
 					     shell);
-	weston_compositor_add_touch_binding(ec, 0,
+	weston_compositor_add_touch_binding(ec, static_cast<enum weston_keyboard_modifier>(0),
 					    touch_to_activate_binding,
 					    shell);
-	weston_compositor_add_tablet_tool_binding(ec, BTN_TOUCH, 0,
+	weston_compositor_add_tablet_tool_binding(ec, BTN_TOUCH, static_cast<enum weston_keyboard_modifier>(0),
 						  tablet_tool_activate_binding, shell);
-	weston_compositor_add_key_binding(ec, KEY_BRIGHTNESSDOWN, 0,
+	weston_compositor_add_key_binding(ec, KEY_BRIGHTNESSDOWN, static_cast<enum weston_keyboard_modifier>(0),
 				          backlight_binding, ec);
-	weston_compositor_add_key_binding(ec, KEY_BRIGHTNESSUP, 0,
+	weston_compositor_add_key_binding(ec, KEY_BRIGHTNESSUP, static_cast<enum weston_keyboard_modifier>(0),
 				          backlight_binding, ec);
 
 	mod = shell->binding_modifier;
@@ -4281,42 +3804,42 @@ shell_add_bindings(struct weston_compositor *ec, DesktopShell *shell)
 	/* This binding is not configurable, but is only enabled if there is a
 	 * valid binding modifier. */
 	weston_compositor_add_axis_binding(ec, WL_POINTER_AXIS_VERTICAL_SCROLL,
-				           MODIFIER_SUPER | MODIFIER_ALT,
-				           surface_opacity_binding, NULL);
+				           static_cast<enum weston_keyboard_modifier>(MODIFIER_SUPER | MODIFIER_ALT),
+				           surface_opacity_binding, nullptr);
 
-	weston_compositor_add_key_binding(ec, KEY_M, mod | MODIFIER_SHIFT,
+	weston_compositor_add_key_binding(ec, KEY_M, static_cast<enum weston_keyboard_modifier>(mod | MODIFIER_SHIFT),
 					  maximize_binding, NULL);
-	weston_compositor_add_key_binding(ec, KEY_F, mod | MODIFIER_SHIFT,
+	weston_compositor_add_key_binding(ec, KEY_F, static_cast<enum weston_keyboard_modifier>(mod | MODIFIER_SHIFT),
 					  fullscreen_binding, NULL);
-	weston_compositor_add_button_binding(ec, BTN_LEFT, mod, move_binding,
+	weston_compositor_add_button_binding(ec, BTN_LEFT, static_cast<enum weston_keyboard_modifier>(mod), move_binding,
 					     shell);
-	weston_compositor_add_touch_binding(ec, mod, touch_move_binding, shell);
-	weston_compositor_add_button_binding(ec, BTN_RIGHT, mod,
+	weston_compositor_add_touch_binding(ec, static_cast<enum weston_keyboard_modifier>(mod), touch_move_binding, shell);
+	weston_compositor_add_button_binding(ec, BTN_RIGHT, static_cast<enum weston_keyboard_modifier>(mod),
 					     resize_binding, shell);
 	weston_compositor_add_button_binding(ec, BTN_LEFT,
-					     mod | MODIFIER_SHIFT,
+					     static_cast<enum weston_keyboard_modifier>(mod | MODIFIER_SHIFT),
 					     resize_binding, shell);
 
-	weston_compositor_add_key_binding(ec, KEY_LEFT, mod | MODIFIER_SHIFT,
+	weston_compositor_add_key_binding(ec, KEY_LEFT, static_cast<enum weston_keyboard_modifier>(mod | MODIFIER_SHIFT),
 					  set_tiled_orientation_left, NULL);
-	weston_compositor_add_key_binding(ec, KEY_RIGHT, mod | MODIFIER_SHIFT,
+	weston_compositor_add_key_binding(ec, KEY_RIGHT, static_cast<enum weston_keyboard_modifier>(mod | MODIFIER_SHIFT),
 					  set_tiled_orientation_right, NULL);
-	weston_compositor_add_key_binding(ec, KEY_UP, mod | MODIFIER_SHIFT,
+	weston_compositor_add_key_binding(ec, KEY_UP, static_cast<enum weston_keyboard_modifier>(mod | MODIFIER_SHIFT),
 					  set_tiled_orientation_up, NULL);
-	weston_compositor_add_key_binding(ec, KEY_DOWN, mod | MODIFIER_SHIFT,
+	weston_compositor_add_key_binding(ec, KEY_DOWN, static_cast<enum weston_keyboard_modifier>(mod | MODIFIER_SHIFT),
 					  set_tiled_orientation_down, NULL);
 
 	if (ec->capabilities & WESTON_CAP_ROTATION_ANY)
-		weston_compositor_add_button_binding(ec, BTN_MIDDLE, mod,
+		weston_compositor_add_button_binding(ec, BTN_MIDDLE, static_cast<enum weston_keyboard_modifier>(mod),
 						     rotate_binding, NULL);
 
-	weston_compositor_add_key_binding(ec, KEY_TAB, mod, switcher_binding,
+	weston_compositor_add_key_binding(ec, KEY_TAB, static_cast<enum weston_keyboard_modifier>(mod), switcher_binding,
 					  shell);
-	weston_compositor_add_key_binding(ec, KEY_F9, mod, backlight_binding,
+	weston_compositor_add_key_binding(ec, KEY_F9, static_cast<enum weston_keyboard_modifier>(mod), backlight_binding,
 					  ec);
-	weston_compositor_add_key_binding(ec, KEY_F10, mod, backlight_binding,
+	weston_compositor_add_key_binding(ec, KEY_F10, static_cast<enum weston_keyboard_modifier>(mod), backlight_binding,
 					  ec);
-	weston_compositor_add_key_binding(ec, KEY_K, mod,
+	weston_compositor_add_key_binding(ec, KEY_K, static_cast<enum weston_keyboard_modifier>(mod),
 				          force_kill_binding, shell);
 
 	weston_install_debug_key_binding(ec, mod);
@@ -4327,7 +3850,7 @@ desktop_shell_notify_session(struct wl_listener *listener, void *data)
 {
 	DesktopShell *shell =
 		container_of(listener, DesktopShell, session_listener);
-	struct weston_compositor *compositor = data;
+	struct weston_compositor *compositor = static_cast<struct weston_compositor *>(data);
 	struct shell_seat *shseat;
 
 	if (!compositor->session_active)
@@ -4354,11 +3877,17 @@ desktop_shell_notify_session(struct wl_listener *listener, void *data)
 static void
 handle_seat_created(struct wl_listener *listener, void *data)
 {
-	struct weston_seat *seat = data;
+	struct weston_seat *seat = static_cast<struct weston_seat *>(data);
 	DesktopShell *shell =
 		container_of(listener, DesktopShell, seat_create_listener);
 
 	create_shell_seat(shell, seat);
+}
+
+static void
+black_surface_committed(struct weston_surface *es,
+			struct weston_coord_surface new_origin)
+{
 }
 
 WL_EXPORT int
@@ -4412,22 +3941,22 @@ wet_shell_init(struct weston_compositor *ec,
 	wl_list_init(&shell->output_move_listener.link);
 	wl_list_init(&shell->seat_create_listener.link);
 	wl_list_init(&shell->resized_listener.link);
-	wl_list_init(&shell->Workspace.focus_list);
-	wl_list_init(&shell->Workspace.seat_destroyed_listener.link);
+	wl_list_init(&shell->workspace.focus_list);
+	wl_list_init(&shell->workspace.seat_destroyed_listener.link);
 
 	weston_layer_init(&shell->minimized_layer, ec);
-	weston_layer_init(&shell->Workspace.layer, ec);
+	weston_layer_init(&shell->workspace.layer, ec);
 
 	if (input_panel_setup(shell) < 0)
 		return -1;
 
 	shell->text_backend = text_backend_init(ec);
 
-	if (!shell_configuration(shell))
+	if (!(shell->shell_configuration()))
 		return -1;
 
-	//Workspace_create(shell);
-	shell->Workspace = new Workspace(shell);
+	//workspace_create(shell);
+	shell->workspace = Workspace(shell);
 
 	shell->desktop = weston_desktop_create(ec, &shell_desktop_api, shell);
 	if (!shell->desktop)
@@ -4461,7 +3990,7 @@ wet_shell_init(struct weston_compositor *ec,
 
 	shell_add_bindings(ec, shell);
 
-	shell_fade_init(shell);
+	shell->shell_fade_init();
 
 	clock_gettime(CLOCK_MONOTONIC, &shell->startup_time);
 

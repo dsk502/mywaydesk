@@ -40,7 +40,7 @@ DesktopShell::DesktopShell()
 	seat_create_listener({0}), output_create_listener({0}), output_move_listener({0}),
 	output_list({0}), seat_list({0}), shsurf_list({0}),
 	panel_position(static_cast<weston_desktop_shell_panel_position>(0)),dock_position(static_cast<weston_desktop_shell_dock_position>(0)),
-	client(nullptr), startup_time(0)
+	client(nullptr), startup_time({0})
 {
 	//Leave empty here
 }
@@ -192,7 +192,7 @@ DesktopShell::shell_fade_startup()
 void
 DesktopShell::lock()
 {
-	Workspace *ws = get_current_workspace(this);
+	Workspace *ws = get_current_workspace();
 
 	if (this->locked) {
 		weston_compositor_sleep(this->compositor);
@@ -253,7 +253,7 @@ DesktopShell::unlock()
 void
 DesktopShell::resume_desktop()
 {
-	Workspace *ws = get_current_workspace(this);
+	Workspace *ws = get_current_workspace();
 
 	weston_layer_unset_position(&this->lock_layer);
 
@@ -266,11 +266,17 @@ DesktopShell::resume_desktop()
 				  WESTON_LAYER_POSITION_UI);
 	weston_layer_set_position(&ws->layer, WESTON_LAYER_POSITION_NORMAL);
 
-	restore_focus_state(this, get_current_workspace(this));
+	restore_focus_state(this, get_current_workspace());
 
 	this->locked = false;
 	shell_fade(FADE_IN);
 	weston_compositor_damage_all(this->compositor);
+}
+
+Workspace *
+DesktopShell::get_current_workspace()
+{
+	return &this->workspace;
 }
 
 /*
@@ -369,6 +375,27 @@ shell_fade_create_view(DesktopShell *shell)
 	return curtain;
 }
 
+static void
+fade_out_done_idle_cb(void *data)
+{
+	ShellSurface *shsurf = static_cast<ShellSurface *>(data);
+	delete (shsurf);
+}
+
+void
+fade_out_done(struct weston_view_animation *animation, void *data)
+{
+	ShellSurface *shsurf = static_cast<ShellSurface *>(data);
+	struct wl_event_loop *loop;
+
+	loop = wl_display_get_event_loop(shsurf->shell->compositor->wl_display);
+
+	if (weston_view_is_mapped(shsurf->wview_anim_fade)) {
+		weston_view_move_to_layer(shsurf->wview_anim_fade, NULL);
+		wl_event_loop_add_idle(loop, fade_out_done_idle_cb, shsurf);
+	}
+}
+
 static enum animation_type
 get_animation_type(char *animation)
 {
@@ -383,10 +410,4 @@ get_animation_type(char *animation)
 		return ANIMATION_DIM_LAYER;
 	else
 		return ANIMATION_NONE;
-}
-
-static void
-black_surface_committed(struct weston_surface *es,
-			struct weston_coord_surface new_origin)
-{
 }

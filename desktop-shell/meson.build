@@ -3,7 +3,12 @@ if get_option('shell-desktop')
 
 	srcs_shell_desktop = [
 		'shell.cpp',
-		'input-panel.c',
+		'input-panel.cpp',
+		'desktopshell.cpp',
+		'shelloutput.cpp',
+		'shellsurface.cpp',
+		'switcher.cpp',
+		'workspace.cpp',
 		weston_desktop_shell_server_protocol_h,
 		weston_desktop_shell_protocol_c,
 		input_method_unstable_v1_server_protocol_h,
